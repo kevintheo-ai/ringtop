@@ -1,0 +1,80 @@
+/* How the calm page looks: the speed, the run and one tile per Spark, upright and wide, from a phone to a wall. */
+:root{
+  color-scheme:dark;
+  --night:#070a1c; --ink:#f3f5ff; --dim:rgba(228,232,255,.64); --faint:rgba(228,232,255,.36); --line:rgba(255,255,255,.09);
+  --glass:rgba(20,24,56,.46);
+  --violet:#8b7dff; --teal:#4ee6c7; --rose:#ff7ab6; --amber:#ffc46b;
+  --text:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --num:ui-rounded,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
+/* --f: the size of running text, 15 px on a phone and up to 30 px on a wall. --big: the size of the speed. */
+body{--f:clamp(15px,1.1vw + .9vh,30px);--big:clamp(72px,min(27vw,22vh),300px);margin:0;background:var(--night);color:var(--ink);font:400 var(--f)/1.35 var(--text);-webkit-font-smoothing:antialiased}
+p,h2{margin:0}
+/* upright: one part under the other, and the page scrolls where the tiles need it */
+.wall{display:grid;align-content:start;gap:calc(var(--f)*1.15);min-height:100vh;min-height:100dvh;grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "speed" "run" "tiles" "foot";
+  padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+header{grid-area:head;display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--dim)}
+#link{display:flex;align-items:center;gap:.5em;min-width:0}
+#link i{width:.55em;height:.55em;border-radius:50%;background:var(--dot,var(--amber));box-shadow:0 0 10px var(--dot,var(--amber));flex:none}
+#names{appearance:none;-webkit-appearance:none;border:0;background:rgba(255,255,255,.07);color:var(--dim);font:500 .9em/1 var(--text);padding:.65em 1.1em;border-radius:999px;cursor:pointer;white-space:nowrap;flex:none}
+#names[aria-pressed=true]{color:var(--ink);background:rgba(139,125,255,.38)}
+#names:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+#speed{grid-area:speed;min-width:0}
+.pill{display:flex;align-items:center;gap:.5em;font:500 1.1em/1.3 var(--text)}
+.pill i{width:.55em;height:.55em;border-radius:50%;background:var(--tone,var(--faint));box-shadow:0 0 12px var(--tone,transparent);flex:none}
+.num{display:flex;align-items:baseline;gap:.1em;font:600 var(--big)/1 var(--num);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.num small{font:500 .17em/1 var(--text);letter-spacing:0;color:var(--dim)}
+/* while nobody writes the word of the core stands in the place of the number */
+#speed.wordy .num{display:none}
+#speed.wordy .pill{font:600 calc(var(--big)*.36)/1.1 var(--num);letter-spacing:-.01em;margin:.25em 0 .2em}
+#speed.wordy .pill i{width:.32em;height:.32em}
+#core-sub{color:var(--dim);font-size:1.05em;overflow-wrap:anywhere;min-height:1.35em}
+#now{grid-area:run;min-width:0}
+.runhead{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+#run-name{font:600 1.35em/1.2 var(--text);letter-spacing:-.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#run-count{font:600 1.15em var(--num);color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+.track{position:relative;height:.45em;border-radius:.3em;background:rgba(255,255,255,.08);margin:.55em 0 .4em;overflow:hidden}
+.track i{position:absolute;inset:0 auto 0 0;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--violet),var(--teal));transition:width .9s cubic-bezier(.2,.8,.2,1)}
+#run-time{color:var(--dim);overflow-wrap:anywhere;min-height:1.35em}
+#tiles{--gap:calc(var(--f)*.55);grid-area:tiles;display:grid;gap:var(--gap);min-width:0;grid-template-columns:repeat(var(--cols-tall,1),minmax(0,1fr))}
+.tile{display:flex;flex-direction:column;justify-content:center;gap:.5em;min-width:0;padding:.8em .95em .75em;border-radius:.9em;background:var(--glass);box-shadow:inset 0 0 0 1px var(--line)}
+/* the line a Spark says about itself stands beside its name, and under it where it is too long for that: it is what the tile is for */
+.t-head{display:flex;flex-wrap:wrap;align-items:center;gap:.1em .45em;min-width:0}
+.t-head i{width:.5em;height:.5em;border-radius:50%;background:var(--tone,var(--teal));box-shadow:0 0 8px var(--tone,var(--teal));flex:none}
+.t-head b{font:600 1.05em/1.2 var(--text);white-space:nowrap;flex:none}
+.t-head span{color:var(--dim);font-size:.88em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%}
+.t-head span.warn{color:var(--amber)}
+.t-head span.bad{color:var(--rose)}
+.t-stats{display:grid;grid-template-columns:repeat(3,auto);justify-content:space-between;gap:.5em}
+.t-stats span{white-space:nowrap;min-width:0}
+.t-stats strong{font:600 1.4em/1.15 var(--num);font-variant-numeric:tabular-nums}
+.t-stats small{font:500 .74em/1 var(--text);color:var(--dim);margin-left:.22em}
+.t-stats em{display:block;font:400 .8em/1.25 var(--text);color:var(--faint)}
+.t-stats .stopped strong{color:var(--rose)}
+.tile.down .t-stats{opacity:.3}
+footer{grid-area:foot;display:flex;flex-wrap:wrap;align-items:baseline;gap:.2em 1.4em;color:var(--dim);font-size:.9em}
+#power{display:flex;align-items:baseline;gap:.5em;white-space:nowrap}
+#power strong{color:var(--ink);font:600 1.1em var(--num);font-variant-numeric:tabular-nums}
+#power small{font-size:1em;color:var(--faint)}
+#about{color:var(--faint)}
+/* a moment that is no longer of now: its figures stay, pale. At once, without a fading: a page nobody draws for a while (a phone that slept) must not come back looking fresh */
+.wall.stale #speed,.wall.stale #now,.wall.stale #tiles,.wall.stale #power{opacity:.3}
+/* wide: the speed and the run on the left, the tiles on the right in rows that share the height; nothing scrolls */
+@media (orientation:landscape){
+  body{--big:clamp(64px,min(12.5vw,36vh),380px)}
+  .wall{height:100vh;height:100dvh;overflow:hidden;align-content:stretch;column-gap:calc(var(--f)*1.7);grid-template-columns:minmax(0,45fr) minmax(0,55fr);grid-template-rows:auto minmax(0,1fr) auto auto;grid-template-areas:"head head" "speed tiles" "run tiles" "foot foot"}
+  #speed{align-self:center}
+  /* a tile is as wide and as high as its share of the place of the tiles (cqw, cqh), and its text is sized by that: sixteen tiles hold what four hold, smaller. The first size is for a browser without those units, and the second stands where the browser says it knows them: a size with a var() in it replaces the one before it whatever its units, and is worth nothing only when it is reckoned */
+  #tiles{container-type:size;min-height:0;grid-template-columns:repeat(var(--cols-wide,1),minmax(0,1fr));grid-template-rows:repeat(var(--rows-wide,1),minmax(0,1fr))}
+  .tile{overflow:hidden;font-size:clamp(7px,min(48vw / var(--cols-wide,1) * .092,68vh / var(--rows-wide,1) * .112),var(--f) * 1.15)}
+  @supports (width:1cqw){.tile{font-size:clamp(7px,min((100cqw - (var(--cols-wide,1) - 1) * var(--gap)) / var(--cols-wide,1) * .092,(100cqh - (var(--rows-wide,1) - 1) * var(--gap)) / var(--rows-wide,1) * .112),var(--f) * 1.15)}}
+  /* and its three figures stand under each other, each with what it is beside it: a tile of a square grid is too narrow for three in a row */
+  .t-stats{grid-template-columns:minmax(0,1fr);gap:.15em}
+  .t-stats span{display:flex;align-items:baseline}
+  .t-stats em{margin-left:auto;padding-left:.6em}
+}
+@media (prefers-reduced-motion:reduce){.track i{transition:none}}

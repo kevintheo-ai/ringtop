@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ringtop</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23070a1c'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%238b7dff' stroke-width='3.5' stroke-dasharray='11 3.1'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="page/style.css">
+</head>
+<body>
+<canvas id="scene" aria-hidden="true"></canvas>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8b7dff" stop-opacity=".38"/><stop offset="1" stop-color="#8b7dff" stop-opacity="0"/></linearGradient></defs></svg>
+<div class="app">
+  <header class="enter" style="--d:900ms"><h1 id="identity">Connecting</h1><div class="head-r"><button id="time-btn" type="button" aria-pressed="false" title="Time machine: look back at any moment that was recorded (T)">Time</button><button id="tour-btn" type="button" aria-pressed="false" title="Tour: the page shows itself, any key stops it (K)">Tour</button><div id="link"><i></i><span>Connecting</span></div></div></header>
+  <main>
+    <div class="hole" id="hole">
+      <div class="core">
+        <div class="pill"><i id="core-dot"></i><span id="core-state">Connecting</span></div>
+        <div id="core-num"></div>
+        <div id="core-sub"></div>
+      </div>
+      <button id="lens-home" type="button" hidden aria-label="Reset view" title="Scroll or pinch zooms, dragging turns the machine, dragging with Shift or the right button moves the picture; this button or the key 0 takes the view back.">Reset view</button>
+    </div>
+    <section id="timebar" class="glass" hidden aria-label="Time machine">
+      <div class="tm-row">
+        <b id="tm-when"></b><span></span>
+        <button id="tm-back" class="n-btn" type="button" title="One step back (,)">◀</button>
+        <button id="tm-play" class="n-btn" type="button" title="Play from here (Space)">Play</button>
+        <button id="tm-fwd" class="n-btn" type="button" title="One step forward (.)">▶</button>
+        <button id="tm-speed" class="n-btn" type="button" title="How fast it plays"></button>
+        <div id="tm-ranges"></div>
+        <button id="tm-live" class="n-btn" type="button" aria-pressed="true" title="Back to now (Esc)">Live</button>
+      </div>
+      <div id="tm-track" class="live"><svg viewBox="0 0 1000 34" preserveAspectRatio="none" aria-hidden="true"><g class="slide"><path class="fill"/><path class="line"/><g class="marks"></g></g></svg><i id="tm-head"></i><span id="tm-from"></span><span id="tm-to"></span><span id="tm-what"></span><span id="tm-none" hidden></span></div>
+    </section>
+    <div class="side">
+      <nav id="views" aria-label="Views"></nav>
+      <section id="now" class="glass enter" style="--d:1050ms" aria-live="polite">
+        <div class="runhead"><h2 id="run-name">Nothing running</h2><span id="run-count"></span></div>
+        <div class="track" id="run-track" hidden><i id="run-fill"></i></div>
+        <p id="run-time"></p>
+        <ol id="stations" hidden></ol>
+        <ul id="run-tracks" hidden></ul>
+        <div class="runfoot"><p id="run-next" hidden></p><p id="run-hold" hidden></p></div>
+        <p id="run-detail" hidden></p>
+      </section>
+      <section id="engine" class="glass enter" style="--d:1180ms">
+        <div class="speed">
+          <span class="lb">Tokens per second, last 30 min</span><span id="decomp"></span>
+          <svg id="speed" class="trace" viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true"><path class="fill"/><path class="line"/><line y1="0" y2="42"/></svg>
+        </div>
+        <dl id="vitals"></dl>
+      </section>
+      <section id="panel" class="glass" hidden aria-live="polite"></section>
+      <section id="spark" class="record" hidden aria-label="One Spark"></section>
+    </div>
+  </main>
+  <section id="dock" class="glass enter" style="--d:1300ms"></section>
+  <footer id="about"></footer>
+</div>
+<div id="tags"></div>
+<svg id="leaders" aria-hidden="true"></svg>
+<div id="callouts"></div>
+<section id="nerd" hidden tabindex="-1" role="dialog" aria-label="Nerd mode">
+  <header class="n-bar">
+    <div class="n-run"><b id="n-name"></b><span id="n-step"></span><span id="n-speed"></span></div>
+    <input id="n-filter" type="search" placeholder="Filter the log  /" aria-label="Filter the log" autocomplete="off" spellcheck="false">
+    <select id="n-node" aria-label="Node"><option value="">All nodes</option></select>
+    <button id="n-pause" class="n-btn" type="button" aria-pressed="false">Pause <kbd>Space</kbd></button>
+    <button id="n-close" class="n-btn" type="button">Close <kbd>Esc</kbd></button>
+  </header>
+  <div id="n-kpis"></div>
+  <nav id="n-tabs" aria-label="Deep views"></nav>
+  <div id="n-pane" hidden></div>
+  <div class="n-body">
+    <aside class="n-col" id="n-left"></aside>
+    <div class="n-logbox">
+      <div class="n-logbar"><span class="n-levels" id="n-levels"></span><span>vLLM lists no running requests, so the text being written is not shown</span></div>
+      <div id="n-log" tabindex="0" aria-label="Engine log"></div>
+      <button id="n-new" type="button" hidden></button>
+    </div>
+    <aside class="n-col" id="n-right"></aside>
+  </div>
+  <footer class="n-time">
+      <svg id="n-tl" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Drag across a stretch of time to filter the log">
+        <path id="n-tok-fill"/><path id="n-tok"/><path id="n-running"/><path id="n-waiting"/><path id="n-kv"/><path id="n-ev-warn"/><path id="n-ev-bad"/>
+        <rect id="n-brush" y="0" height="40" width="0" x="0"/>
+      </svg>
+      <div class="n-ticks"><span>30 min ago</span><span id="n-legend"></span><span id="n-range"></span><span>now</span></div>
+  </footer>
+</section>
+<script src="page/base.js"></script>
+<script src="page/rules.js"></script>
+<script src="page/measure.js"></script>
+<script src="page/neutral.js"></script>
+<script src="page/faces.js"></script>
+<script src="page/history.js"></script>
+<script src="page/scene-programs.js"></script>
+<script src="page/scene-stage.js"></script>
+<script src="page/scene-labels.js"></script>
+<script src="page/scene-lens.js"></script>
+<script src="page/scene-world.js"></script>
+<script src="page/scene-draw.js"></script>
+<script src="page/scene.js"></script>
+<script src="page/run.js"></script>
+<script src="page/runcard.js"></script>
+<script src="page/vitals.js"></script>
+<script src="page/dock.js"></script>
+<script src="page/hover.js"></script>
+<script src="page/parts.js"></script>
+<script src="page/plot.js"></script>
+<script src="page/board.js"></script>
+<script src="page/spark.js"></script>
+<script src="page/cooling.js"></script>
+<script src="page/runs.js"></script>
+<script src="page/views.js"></script>
+<script src="page/nerd-live.js"></script>
+<script src="page/nerd-deep.js"></script>
+<script src="page/nerd.js"></script>
+<script src="page/tour.js"></script>
+<script src="page/time.js"></script>
+<script src="page/main.js"></script>
+</body>
+</html>

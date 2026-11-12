@@ -1,0 +1,56 @@
+# The rules ringtop's Python is held to: what the linter checks, and the limits that keep every piece small.
+# `ruff check .` has to come back clean.
+
+[tool.ruff]
+# The oldest Python the checks pass on (`python3 test_ringtop.py`, run under 3.9). Rules that ask for newer
+# syntax stay quiet because of it.
+target-version = "py39"
+line-length = 120
+# The programs for the nodes are sent as text to whatever python3 a node has, and the sampler is one program in
+# several files that share one namespace. A linter that reads file by file sees undefined names there, and one that
+# rewrites for a newer Python would break an older node. So those files are not linted here (each also says so
+# in its first line, for tools that do not read this file). tests/test_sampler.py checks the joined text instead:
+# every name bound, nothing defined twice, grammar no newer than Python 3.8, one sentence per file and function.
+extend-exclude = ["ringtop_parts/node"]
+
+[tool.ruff.lint]
+select = [
+    "E",        # pycodestyle errors
+    "W",        # pycodestyle warnings
+    "F",        # pyflakes: unused imports, undefined names
+    "I",        # the order of imports
+    "UP",       # the syntax of the target version
+    "S",        # bandit: security
+    "B",        # bugbear: common bugs
+    "SIM",      # simpler ways to say the same
+    "RUF",      # ruff's own rules
+    "FA",       # annotations of a newer Python need `from __future__ import annotations`
+    "C90",      # how tangled a function is
+    "PLR0912",  # branches in a function
+    "PLR0915",  # statements in a function
+    "D1",       # one sentence for every file, class and function
+    "DTZ",      # no time without a zone
+]
+ignore = [
+    "E501",  # the length of a line is the formatter's business; what it cannot break (a long text) may stand
+    "S603",  # running ssh, docker and the run source is what ringtop does: lists built from checked names, never a shell line
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-statements = 50
+
+[tool.ruff.lint.per-file-ignores]
+# The checks assert, start processes, open test servers and quote the page's own signs: none of that is a finding
+# there. A check says in its name what it holds, so it needs no sentence.
+"tests/*.py" = ["S", "D1", "RUF001"]
+# The generator of the 3D model: run by hand once, not part of the running program. It stays as it was written
+# until someone works on it.
+"model/build_spark.py" = ["C901", "PLR0912", "PLR0915", "D1", "S101", "B007", "RUF005", "RUF046", "SIM115"]
+
+[tool.ruff.format]
+# The generator of the 3D model keeps the layout it was written in, like its statements (see above).
+exclude = ["model/*.py"]
