@@ -25,6 +25,9 @@ LOG_KEEP = 4000
 # per start). It stands while the Spark is away; everything else on its node is a reading, and does not
 IS_WHAT = ("mem_total_gb", "mhz_max", "disk_total_gb", "capacity", "startup")
 HEAD_WAIT = "Waiting for the head node"  # what the engine says until the head sent a word of it
+# held looks for a head in a row (one every 15 s, connect/shell.py HEAD_LOOK) from which on the engine says why there
+# is none: four, the same minute the readings of every 15 s stand without a new one (SLOW_KEEP in hub_ingest.py)
+HELD_LOOKS = 4
 
 
 class Hub(Ingest, Own, Rates, Views, Nerd, Runs):
@@ -58,8 +61,9 @@ class Hub(Ingest, Own, Rates, Views, Nerd, Runs):
         self.heard_at: dict[str, float] = {}  # when each Spark last sent a sample
         # when each Spark last sent the readings of every 15 s, and when those of every minute, with their names
         self.slow_at, self.rare = {}, {}
-        # the word of the engine, and the one Spark the last look for a head took for it (core/heads.py)
-        self.engine_error, self.head_last = HEAD_WAIT, None
+        # the word of the engine, the one Spark the last look for a head took for it (core/heads.py), and how many
+        # looks in a row were held while there is no head
+        self.engine_error, self.head_last, self.head_held = HEAD_WAIT, None, 0
         # what the head last told about itself (container, lab queue, benchmarks, models), and when it told that
         self.info, self.info_at = {}, now
         self.external_run: dict | None = None
@@ -161,10 +165,19 @@ class Hub(Ingest, Own, Rates, Views, Nerd, Runs):
 
     def look_for_head(self, now: float) -> tuple[str, ...]:
         """One look for the head of a map that names none (core/heads.py): takes the Spark the rules find, and says
-        on the engine why there is none. Gives the names whose role changed, the old head and the new one, or none."""
+        on the engine why there is none. Gives the names whose role changed, the old head and the new one, or none.
+        Without a head, looks held for a minute say so on the engine; the next look that is not held takes that word
+        off again."""
         with self.lock:
+            sparks = list(self.nodes.values())
             old = next((node["name"] for node in self.cluster["nodes"] if node["head"]), None)
-            head, self.head_last, word = heads.look(list(self.nodes.values()), old, self.head_last)
+            head, self.head_last, word = heads.look(sparks, old, self.head_last)
+            if old is None:
+                self.head_held = self.head_held + 1 if heads.held(sparks) else 0
+                if self.head_held >= HELD_LOOKS:
+                    word = heads.WORDS["unread"]
+                elif word is None and self.engine_error == heads.WORDS["unread"]:
+                    word = HEAD_WAIT
             if word is not None:
                 self.engine_error = word
             if head == old:

@@ -494,7 +494,8 @@ def test_a_spark_whose_other_board_comes_while_it_stands_open_closes_and_stays_a
     """A Spark opened as the model before its board came (the board comes with the readings of every
     minute, so not in the first minute after a start) became a box, but its opening froze: Scene.opened() stayed
     true, also after the ring and back, with labels of a DGX Spark at a box. The board that makes it a box now closes
-    it as well, and it stays shut."""
+    it as well, and it stays shut: after the ring and back the program of the model does not draw it, another
+    program draws it as the box."""
     three = page_moments(demo_map("ring3"), "ring3")
     board = "m => { m.nodes[1].firmware = { ...(m.nodes[1].firmware || {}), board: 'demo-gb10' }; }"
     got = scene(
@@ -502,7 +503,12 @@ def test_a_spark_whose_other_board_comes_while_it_stands_open_closes_and_stays_a
             f"server.place('#hole', {NARROW}); setView('node', S.nodes[1].name); server.draw(100, 50); Scene.opened()",
             f"{SAY}({board}); server.draw(60, 50); [Scene.opened(), foreignBoard(S.nodes[1]), globalThis.reloads || 0]",
             "setView('ring'); server.draw(60, 50); setView('node', S.nodes[1].name); server.draw(100, 50); Scene.opened()",
+            DRAWN,
         ],
         change=without_boards(three),
     )
-    assert got == [True, [False, True, 0], False], got
+    assert got[:3] == [True, [False, True, 0], False], got[:3]
+    ring = [f"server.place('#hole', {NARROW}); null", "setView('ring'); server.draw(60, 50); null", DRAWN]
+    plain = scene(ring, change=without_boards(three))[2]
+    gone = sorted(set(plain["model"]) - set(got[3]["model"]))
+    assert len(gone) == 1 and gone[0] in got[3]["other"], (got[3], plain)

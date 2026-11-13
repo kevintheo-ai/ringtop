@@ -4,7 +4,7 @@ import random
 
 from ringtop_parts.core import heads
 from ringtop_parts.core.cluster import parse_cluster
-from ringtop_parts.core.hub import Hub
+from ringtop_parts.core.hub import HELD_LOOKS, Hub
 from tests.fixtures import engine_sample, ring_map
 
 
@@ -116,12 +116,55 @@ def test_the_hub_looks_for_a_head_and_says_on_the_engine_why_there_is_none():
     assert [e["node"] for e in hub.events if e["kind"] == "head"] == ["dgx0", "dgx2"]
 
 
+HELD = [*RING_OF_FOUR[:3], spark("dgx3", None)]  # a live Spark whose programs were not read: the look holds
+IDLE = [spark("dgx0"), spark("dgx1"), spark("dgx2"), spark("dgx3")]  # all read, no candidate
+
+
+def looks(hub, *rounds):
+    """One look for a head at each round of Sparks, one after the other; gives the word on the engine after each."""
+    words = []
+    for t, sparks in enumerate(rounds):
+        show(hub, sparks)
+        hub.look_for_head(float(t))
+        words.append(hub.view()["engine"]["error"])
+    return words
+
+
+def test_looks_held_for_a_minute_say_why_there_is_no_head_and_the_next_look_that_is_read_takes_it_off():
+    """Without a head, three looks held in a row (a live Spark's programs not known) leave the engine waiting; the
+    fourth, a minute of them, says why there is no head, and so does every held look after it. The next look that is
+    read says its own word, or, where it has none (the first look at a candidate, which is not taken yet), the engine
+    waits again."""
+    unread, none, wait = heads.WORDS["unread"], heads.WORDS["none"], "Waiting for the head node"
+    assert looks(headless_hub(), *[HELD] * 6) == [wait] * 3 + [unread] * 3
+    assert looks(headless_hub(), *[HELD] * 4, IDLE)[-1] == none
+    hub = headless_hub()
+    assert looks(hub, *[HELD] * 4, RING_OF_FOUR)[-1] == wait and not any(n["head"] for n in hub.cluster["nodes"])
+
+
+def test_only_held_looks_in_a_row_and_without_a_head_say_that_programs_are_unread():
+    """A look that is read between held ones starts the count anew: three held, one read, three held say no word of
+    unread programs. A Spark that is away holds no look, whether its programs were read or not. Once a head is set, no
+    number of held looks says it: the words of the engine come from the head."""
+    unread, none, wait = heads.WORDS["unread"], heads.WORDS["none"], "Waiting for the head node"
+    words = looks(headless_hub(), HELD, HELD, HELD, IDLE, HELD, HELD, HELD)
+    assert words == [wait, wait, wait, none, none, none, none] and unread not in words, words
+    away = [*IDLE[:3], spark("dgx3", None, live=False)]  # away, its programs not read: the look does not hold
+    assert looks(headless_hub(), *[away] * 5) == [none] * 5
+    hub = headless_hub()
+    words = looks(hub, RING_OF_FOUR, RING_OF_FOUR, *[HELD] * 8)
+    flags = [n["head"] for n in hub.cluster["nodes"]]
+    assert flags == [True, False, False, False] and words == [wait] * 10 and unread not in words, (flags, words)
+
+
 def test_a_thousand_looks_at_flickering_readings_never_give_two_heads_or_a_change_after_one_look():
     """A thousand looks at Sparks whose programs flicker by chance: not read, none, the first part wandering between
     them, Sparks going away. Never two Sparks with the role of head, never a change after a single look, and a look
-    while a live Spark's programs are not known never changes anything."""
+    while a live Spark's programs are not known never changes the head or the candidate it remembers. It changes the
+    word of the engine only where there is no head and such looks came HELD_LOOKS in a row: then to the word of
+    unread programs. How often that came is counted (unread_looks)."""
     chance, hub = random.Random(5), headless_hub()
-    names, last_found, changes = ["dgx0", "dgx1", "dgx2", "dgx3"], None, 0
+    names, last_found, changes, unread_looks = ["dgx0", "dgx1", "dgx2", "dgx3"], None, 0, 0
     for t in range(1000):
         first = chance.choice(names) if chance.random() < 0.8 else None
         sparks = []
@@ -136,27 +179,30 @@ def test_a_thousand_looks_at_flickering_readings_never_give_two_heads_or_a_chang
         moved = hub.look_for_head(float(t))
         assert sum(n["head"] for n in hub.cluster["nodes"]) <= 1 and sum(n["head"] for n in hub.nodes.values()) <= 1
         if unknown:
-            assert moved == () and before == (
-                [n["head"] for n in hub.cluster["nodes"]],
-                hub.head_last,
-                hub.engine_error,
-            )
+            flags, word = [n["head"] for n in hub.cluster["nodes"]], hub.engine_error
+            assert moved == () and (flags, hub.head_last) == before[:2], (t, before, flags, hub.head_last)
+            if not any(before[0]) and hub.head_held >= HELD_LOOKS:
+                unread_looks += 1
+                assert word == heads.WORDS["unread"], (t, word)
+            else:
+                assert word == before[2], (t, before[2], word)
             continue
         if moved:
             changes += 1
             assert found == [moved[-1]] and last_found == moved[-1], (t, found, last_found, moved)
         last_found = found[0] if len(found) == 1 else None
-    assert changes > 5, changes  # what this check stands on: the head did move, often
+    assert changes > 5, (changes, unread_looks)  # what this check stands on: the head did move, often
 
 
 def test_the_words_of_the_head_are_plain_and_final():
-    """The three sentences the look for a head may say, word for word: plain
+    """The four sentences the look for a head may say, word for word: plain
     ASCII, no name of a machine, nothing left to fill in. The event names its Spark in its own field: the list and
     the timeline of the page put the name in front of the text already."""
     assert heads.WORDS == {
         "none": "No Spark shows TP0 of a multi-Spark engine. Name the head in --nodes.",
         "several": "Several Sparks look like the head; none chosen. Name it in --nodes.",
         "found": "Read as the head; token rate now comes from it.",
+        "unread": "No head chosen: not every Spark's GPU programs are read. Name it in --nodes.",
     }
     for word in heads.WORDS.values():
         assert word.isascii() and not any(mark in word for mark in ("DGX", "GB10", "{", "}")), word
