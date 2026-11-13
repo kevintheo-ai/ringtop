@@ -154,11 +154,7 @@ function sceneWorld(shared) {  // seam
       p.tag.style.setProperty('--tone', toneOf(note.cls));
     }
     for (const c of state.chips) {
-      const edge = s.edges.filter(e => (e.from === c.a.rank && e.to === c.b.rank) || (e.from === c.b.rank && e.to === c.a.rank));
-      const ways = linkWays(edge, c.a.rank, c.b.rank).filter(v => v != null);  // both directions, also when only one end was read
-      const oneWay = edge.filter(e => e.from === (edge[0] || {}).from), cap = oneWay.reduce((sum, e) => sum + (e.capacity || 0), 0);  // what the cables of this pair carry in one direction
-      const gbps = ways.reduce((sum, v) => sum + v, 0), err = edge.some(e => e.errors), down = edge.some(e => e.up === false);  // looking back, the state of a link is unknown: that is not "down"
-      const text = !ways.length ? 'no reading' : `${gbps.toFixed(gbps >= 100 ? 0 : 1)} Gb/s${cap ? ` · ${Math.round(Math.max(...ways, 0) / cap * 100)} %` : ''}${err ? ' · errors' : down ? ' · down' : ''}`;
+      const text = chipWord(s.edges, c.a.rank, c.b.rank);
       if (text !== c.text) {
         c.text = text; c.w = 0; c.el.textContent = '';
         const [num, ...rest] = text.split(' ');

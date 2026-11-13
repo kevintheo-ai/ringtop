@@ -13,7 +13,7 @@ from tests.test_prom import played
 # Everything a wall may get of a moment, written out here once more and on purpose: a field added to the list of the
 # server shows as a failure of this check, and is then a decision, not a slip.
 TOP = {"t", "cluster", "identity", "engine", "nodes", "run", "why"}
-IDENTITY = {"interval", "memguard_gib"}  # not the model: no script of the calm page reads it
+IDENTITY = {"interval", "memguard_gib", "demo"}  # not the model: no script of the calm page reads it
 ENGINE = {"state", "word", "tok_s", "running", "waiting", "error", "answers"}
 SPARK = {
     "name",
@@ -206,7 +206,7 @@ def test_a_field_of_a_wall_moment_is_of_the_kind_its_list_says():
     moment = copy.deepcopy(played()["writing"])
     moment["run"].update(name={"inside": SECRET}, done=10**400, total=float("nan"), started="soon " + SECRET)
     moment["engine"].update(state=["writing", SECRET], tok_s=float("inf"), running=True, error={"why": SECRET})
-    moment["identity"].update(model=[SECRET], interval="2")
+    moment["identity"].update(model=[SECRET], interval="2", demo="yes " + SECRET)
     moment["cluster"].update(ring="yes")
     moment["cluster"]["nodes"][0].update(rank="0", head=1)
     first, second = moment["nodes"][:2]
@@ -223,7 +223,7 @@ def test_a_field_of_a_wall_moment_is_of_the_kind_its_list_says():
     assert wall["cluster"]["nodes"][0] == {"name": "dgx0", "rank": None, "head": None}
     assert wall["run"] == {"source": "command", "name": None, "done": None, "total": None, "started": None}
     assert wall["engine"] == {"state": None, "tok_s": None, "running": None, "waiting": 0.0, "error": None}
-    assert wall["identity"] == {"interval": None, "memguard_gib": None}, wall["identity"]
+    assert wall["identity"] == {"interval": None, "memguard_gib": None, "demo": None}, wall["identity"]
     spark = wall["nodes"][0]
     assert [spark[key] for key in ("name", "live", "gpu_c", "fan", "mem_free_gb", "latched")] == [None] * 6, spark
     assert spark["fans"] == [0, None, None, 3100, None] and spark["throttle"] == ["thermal"], spark

@@ -66,7 +66,7 @@ const PART_INFO = {
   qsfp_cage: { title: 'QSFP ports', short: n => linksUpWord(nodeEdges(n), S.past),
     show: (box, n) => {
       const e = nodeEdges(n);
-      hero(box, [[linksUp(e) == null ? '–' : `${linksUp(e)}/${e.length}`, 'links up'], [String(e[0] ? fixed(e[0].capacity, 0) : '–'), 'Gb/s per port'], [fixed(n.net, 1), 'Gb/s now']]);
+      hero(box, [[linksUp(e) == null ? '–' : `${linksUp(e)}/${e.length}`, 'links up'], [String(e[0] ? fixed(e[0].capacity, 0) : '–'), 'Gb/s per port'], [fixed(busiestPort(e), 1), 'Gb/s busiest port']]);
       portCharts(box, n, 'Port');
       counters(box, n);
     } },

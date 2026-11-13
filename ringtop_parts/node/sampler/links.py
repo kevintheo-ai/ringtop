@@ -54,7 +54,8 @@ def rdma_counters():
 
 def cable_counters():
     """The counters of each cable: ethtool for one function of each physical port, because the *_phy counters of both
-    functions are the same cable."""
+    functions are the same cable. Each row says when its counters were asked for (`t`): the cables are read one
+    after the other, after the NVML fields, and become rates over their own moments."""
     out = {}
     for d in sorted(glob.glob("/sys/class/infiniband/*")):
         group = re.search(r"f(\d+)$", os.path.basename(d))
@@ -63,7 +64,7 @@ def cable_counters():
         if key in out or not nets:
             continue
         name = os.path.basename(nets[0])
-        row = {}
+        row = {"t": time.time()}
         text = subprocess.run(["ethtool", "-S", name], capture_output=True, text=True, timeout=4).stdout
         for line in text.splitlines():
             k, _, value = line.strip().partition(": ")

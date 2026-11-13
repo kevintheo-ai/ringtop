@@ -36,12 +36,14 @@ MEM_KEEP = (
 
 
 def memory_deep():
-    """Where the unified memory went, how fragmented it is, and whether the kernel is fighting for it."""
+    """Where the unified memory went, how fragmented it is, and whether the kernel is fighting for it. The kernel's
+    counters say when they were read (`t` of `vm`): they become rates over that moment."""
     mem, vm = {}, {"allocstall": 0}
     for line in (read("/proc/meminfo") or "").splitlines():
         k, _, v = line.partition(":")
         if k in MEM_KEEP and v.strip():
             mem[k] = int(v.split()[0]) * 1024
+    vm["t"] = time.time()
     for line in (read("/proc/vmstat") or "").splitlines():
         k, _, v = line.partition(" ")
         if k.startswith("allocstall") and v.isdigit():

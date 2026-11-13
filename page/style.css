@@ -25,6 +25,7 @@ h1{font:600 15px/1.3 var(--text);margin:0;letter-spacing:-.005em;text-shadow:0 1
 .head-r button:focus-visible,#timebar :focus-visible{outline:2px solid var(--violet);outline-offset:1px}
 #link{color:var(--dim);white-space:nowrap;display:flex;align-items:center;gap:6px;margin-left:8px}
 #link i{width:7px;height:7px;border-radius:50%;background:var(--dot,var(--teal));box-shadow:0 0 10px var(--dot,var(--teal))}
+#demo{color:var(--amber);background:rgba(255,196,107,.12);box-shadow:inset 0 0 0 1px rgba(255,196,107,.5);font:600 12.5px/1 var(--text);padding:5px 10px;border-radius:999px;white-space:nowrap;margin-right:6px;cursor:help}
 
 main{display:grid;grid-template-columns:minmax(0,1fr) clamp(330px,37vw,440px);gap:16px;min-height:0}
 .hole{position:relative;min-height:0;grid-area:1/1}
@@ -101,10 +102,10 @@ h2{font:600 clamp(17px,3.1vh,23px)/1.2 var(--text);letter-spacing:-.012em;margin
 #run-tracks i,.t-job{position:absolute;left:0;bottom:0;height:2px;width:0;border-radius:2px;background:linear-gradient(90deg,var(--violet),var(--teal));transition:width .9s cubic-bezier(.2,.8,.2,1)}
 #stations[hidden],#run-tracks[hidden]{display:none}
 #stations{list-style:none;display:flex;align-items:center;margin:7px 0 4px;padding:0}
-#stations li{flex:1 1 0;height:12px;min-width:5px;position:relative}
+#stations li{flex:1 1 0;height:12px;min-width:0;position:relative}
 #stations li::before{content:"";position:absolute;left:50%;right:-50%;top:5px;height:2px;background:rgba(255,255,255,.1);transition:background .7s}
 #stations li:last-child::before{display:none}
-#stations li::after{content:"";position:absolute;left:calc(50% - 4px);top:2px;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.14);transition:background .7s,box-shadow .7s,transform .7s}
+#stations li::after{content:"";position:absolute;left:50%;margin-left:max(-4px,-50%);top:2px;width:min(8px,100%);height:8px;border-radius:50%;background:rgba(255,255,255,.14);transition:background .7s,box-shadow .7s,transform .7s}
 #stations li[data-state=done]::before{background:rgba(139,125,255,.65)}
 #stations li[data-state=done]::after{background:var(--violet);box-shadow:0 0 9px rgba(139,125,255,.9)}
 #stations li[data-state=running]::after{background:var(--teal);box-shadow:0 0 0 3px rgba(78,230,199,.22),0 0 14px var(--teal);transform:scale(1.25)}

@@ -3,7 +3,7 @@
 import tempfile
 import types
 
-from tests.fixtures import hub_for, sampler_namespace
+from tests.fixtures import hub_for, sampler_namespace, slow_files
 
 
 def test_the_sampler_moves_off_the_engine_again_when_the_engine_moves():
@@ -89,6 +89,7 @@ def test_a_cgroup_file_that_could_not_be_read_counts_nothing():
         for gone in ("/io.stat", "/cpu.stat", "/memory.events"):
             del files[base + gone]
         unread = ns["engine_cgroup"]()
+    del whole["t"], unread["t"]  # the first reading comes again below: here the moments of the samples count
     assert unread["disk"] == {"rbytes": None, "wbytes": None, "rios": None, "wios": None}, unread  # was four zeros
     assert (unread["cpu_us"], unread["throttled"], unread["oom"]) == (None, None, None), unread  # was (0, 0, 0)
     assert (unread["mem"], unread["pids"]) == (1073741824, 9)
@@ -100,3 +101,23 @@ def test_a_cgroup_file_that_could_not_be_read_counts_nothing():
     assert node["eng_mem_gb"] == 1.0 and node["eng_pids"] == 9
     hub.ingest("dgx0", {"t": 104.0, "fabric": {}, "cg": {**whole, "cpu_us": 9000000}})
     assert node["eng_cores"] == 1.0, node["eng_cores"]  # four seconds of CPU in the 4 s since its last reading
+
+
+def test_the_pressure_and_the_cgroup_name_the_moment_their_counters_were_read():
+    """Stall times and what the engine's cgroup counts become rates in the hub, over the moment they were read. In a
+    round the pressure files come after the ring ports, the disk, the sensors and the thermal zones, the cgroup of
+    the engine last of all: each names when its first file was opened."""
+    ns, clock = sampler_namespace(), [1000.0]
+    with tempfile.TemporaryDirectory() as base:
+        ns["cg"][0] = base
+        files = {
+            "/proc/pressure/cpu": "some avg10=0.00 avg60=0.00 avg300=0.00 total=5000",
+            base + "/io.stat": "259:0 rbytes=4096 wbytes=0 rios=2 wios=0",
+            base + "/cpu.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=7",
+        }
+        opened = slow_files(ns, files, clock)
+        pressure = ns["psi"]("/proc/pressure/%s")
+        clock[0] += 1.0  # the readers between them
+        box = ns["engine_cgroup"]()
+    assert pressure == {"t": 1000.0, "cpu_some": 5000} and opened["/proc/pressure/cpu"] == 1000.0, pressure
+    assert box["t"] == opened[base + "/io.stat"] == 1001.25 and box["disk"]["rbytes"] == 4096, (box, opened)

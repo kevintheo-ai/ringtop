@@ -34,8 +34,8 @@ const VITALS = [
     'Prompt tokens answered from the prefix cache, as a share of all prompt tokens asked for in the last 8 seconds.'],
   ['GPU power', (e, st) => { const s = readSum(st.nodes, 'w'); return s.read ? `${whole(s.sum)} W` : 'n/a'; }, (e, st) => { const s = readSum(st.nodes, 'w'); return st.loading ? 'loading' : `${s.read} of ${s.of} ${st.past ? 'recorded' : 'read'}`; },
     'GPU power of the Sparks that were read, added up, as nvidia-smi reports it. A whole Spark draws more: the GB10 does not report that.'],
-  ['Ring traffic', (e, st) => { const s = readSum(st.nodes, 'net'); return s.read ? `${s.sum.toFixed(1)} Gb/s` : 'n/a'; }, (e, st) => readWord(readSum(st.nodes, 'net'), st.past),
-    'Sent plus received on the ring ports of the Sparks that were read, from the RDMA counters. A Spark whose ports have no reading is left out, and the note says how many are in the sum.'],
+  ['Ring traffic', (e, st) => { const s = ringTraffic(st.nodes, st.edges); return s.read ? `${s.sum.toFixed(1)} Gb/s` : 'n/a'; }, (e, st) => readWord(ringTraffic(st.nodes, st.edges), st.past),
+    'Ring traffic from RDMA counters, each cable direction once: as its sender counts it, else as the other end receives it. A Spark with an unknown sent direction is left out, and the note says how many are summed. On a switch, only what each Spark sends counts.'],
   ['GPU busy', (e, st) => { const live = st.nodes.filter(n => n.live && n.util != null); return live.length ? Math.round(live.reduce((a, n) => a + n.util, 0) / live.length) + ' %' : 'n/a'; }, () => 'average',
     'GPU utilisation, averaged over the Sparks that answer.'],
 ];

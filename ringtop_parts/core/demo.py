@@ -106,6 +106,7 @@ class Demo(threading.Thread):
         cluster the hub was given (demo_forms.py): what its Sparks show beyond the ring of four."""
         super().__init__(daemon=True)
         self.hub, self.at, self.faults, self.form = hub, at, faults, form  # at: the second of the round it starts with
+        hub.demo = True  # the hub it feeds shows no real cluster, and says so
         self.halt = threading.Event()  # set, the round ends: a check that started it can stop it again
 
     def phase(self, t: float) -> str:

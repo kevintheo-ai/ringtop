@@ -508,3 +508,15 @@ def test_the_switch_for_the_names_says_what_is_on_and_that_the_real_names_still_
     assert "spark-1 to spark-N" in on and '"Test run"' in on and "picture" in off, (on, off)
     assert stale.endswith(" 17:27:25") and len(stale) <= 26, stale  # with a 12-hour clock: three signs more
     assert "PLACEHOLDER" not in (WALL.parent / "wall.js").read_text()
+
+
+@needs_node
+def test_the_calm_page_shows_the_sign_of_the_demo_only_where_the_server_says_so():
+    """The calm page carries the sign of the demo in its head like the main page: shown while the moments name the
+    demo, also with neutral names, and hidden for a moment without that field, as a real cluster sends it."""
+    first = moments()["writing"]
+    real = {**first, "t": first["t"] + 2, "identity": {k: v for k, v in first["identity"].items() if k != "demo"}}
+    sign = "document.querySelector('#demo').hidden"
+    assert first["identity"]["demo"] is True, first["identity"]
+    assert wall([sign, f"server.say({json.dumps(real)}); {sign}"]) == [False, True]
+    assert wall([f"[NEUTRAL, {sign}]"], search="?names=neutral") == [[True, False]]

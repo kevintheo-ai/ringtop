@@ -33,6 +33,8 @@ HELD_LOOKS = 4
 class Hub(Ingest, Own, Rates, Views, Nerd, Runs):
     """Everything the page shows, fed by the node streams and read by the web server."""
 
+    demo = False  # the demo sets it on the hub it feeds: then every moment says that no real cluster is shown
+
     def __init__(
         self,
         cluster: dict,

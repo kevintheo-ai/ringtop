@@ -6,7 +6,7 @@ import os
 import tempfile
 import types
 
-from tests.fixtures import hub_for, sampler_namespace
+from tests.fixtures import hub_for, sampler_namespace, slow_files
 
 
 def made_up_files(namespace, files):
@@ -124,6 +124,8 @@ def test_a_ring_port_is_named_with_what_was_read_of_it():
         ring_port(folder, "roceP2p1s0f1", {**less, "state": "1: DOWN", "counters/port_rcv_data": "x"})
         ring_port(folder, "other0", {"state": "4: ACTIVE", "rate": "10 Gb/sec"})
         got = namespace["fabric"]()
+    stamps = [port.pop("t") for port in got.values()]
+    assert all(isinstance(stamp, float) for stamp in stamps), stamps  # each port says when its traffic was read
     assert got["rocep1s0f0"] == {"tx": 1000, "rx": 2000, "up": True, "rate": 200.0, "err": 13}, got["rocep1s0f0"]
     unread = {"tx": None, "rx": 2000, "up": True, "rate": None, "err": 13}  # was left out of the sample
     assert got["rocep1s0f1"] == unread, got["rocep1s0f1"]
@@ -157,3 +159,26 @@ def test_a_state_file_that_reads_empty_says_nothing_of_the_link():
     assert seen[0] == (True, True, []), seen
     assert seen[1] == seen[2] == (None, None, []), seen  # was (False, False, ["Link f0 went down"]) for each
     assert seen[3] == (False, False, ["Link f0 went down"]), seen  # a state that says down is down, and said once
+
+
+def test_each_ring_port_and_the_disk_name_the_moment_their_counters_were_read():
+    """The traffic of a ring port and the sectors of the disk become rates in the hub, and a rate is right only over
+    the moment its counters were read. The sample is stamped when its round begins, and these are read after the
+    GPU, the cores, the CPU and the memory, later by as much as those took: more in one round than in the next.
+    Each port says when its data counters were read, also the one read after the files of another; the disk says
+    when its list was read."""
+    namespace, clock = sampler_namespace(), [1000.0]
+    devices = ["/sys/class/infiniband/rocep1s0f0", "/sys/class/infiniband/rocep1s0f1"]
+    port = {"state": "4: ACTIVE", "rate": "200 Gb/sec (4X HDR)", "counters/port_xmit_data": "1000"}
+    port["counters/port_rcv_data"] = "2000"
+    files = {f"{d}/ports/1/{path}": text for d in devices for path, text in port.items()}
+    files["/proc/diskstats"] = " 259 0 nvme0n1 10 0 4000 0 20 0 800 0 0 0 0\n"
+    opened = slow_files(namespace, files, clock)
+    namespace["glob"] = types.SimpleNamespace(glob=lambda pattern: list(devices))
+    got = namespace["fabric"]()
+    first, second = (got[d.rsplit("/", 1)[1]]["t"] for d in devices)
+    assert first == opened[devices[0] + "/ports/1/counters/port_xmit_data"] == 1000.0, (got, opened)
+    assert second == opened[devices[1] + "/ports/1/counters/port_xmit_data"] == 1001.0, (got, opened)
+    clock[0] += 0.5  # the sensors and the zones come between
+    disk = namespace["disk"]()
+    assert disk["t"] == opened["/proc/diskstats"] == 1002.5 and disk["read"] == 4000, (disk, opened)

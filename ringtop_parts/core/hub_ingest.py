@@ -7,6 +7,7 @@ import time
 
 from ringtop_parts.core.diagnose import LATCH_MHZ, LATCH_SAMPLES, NEAR_LIMIT_C, throttle_reasons
 from ringtop_parts.core.figures import node_figures, num, restarted, rounded
+from ringtop_parts.core.hub_rates import read_at
 
 SINK_LINE = re.compile(r"Sink detector, rank (\d+): (\d+) flagged rows")
 SLOW_KEEP = 60.0  # seconds the readings of every 15 s stand without a new one: four of their periods
@@ -235,7 +236,7 @@ class Ingest:
         if "disk" not in sample:
             return
         disk = sample["disk"] or {}
-        t = sample.get("t", time.time())
+        t = read_at(disk, sample.get("t", time.time()))  # when its sectors were read, where the sampler names it
         before = self.disk_before.get(name)
         self.disk_before[name] = (t, disk)
         total = rounded(disk["total"] / 2**30, 0) if disk.get("total") is not None else None

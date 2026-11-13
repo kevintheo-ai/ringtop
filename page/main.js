@@ -10,6 +10,7 @@ function renderIdentity(state) {
     : i.model ? `${i.model}${i.image ? ' on ' + i.image : ''}${i.container && i.container !== 'running' ? ', ' + i.container : ''}.` : 'Waiting for the engine.';
   const where = `${n} Spark${n === 1 ? '' : 's'}${state.cluster.ring ? ' in a ring' : ''}${i.context && !state.past ? ', ' + context(+i.context) + ' context' : ''}${untestedSetup(state) ? ', untested setup' : ''}.`;
   $('#identity').textContent = what + ' ' + where;
+  show($('#demo'), !!LIVE && LIVE.identity.demo === true);  // the sign of the demo, by the field the server sends; looking back too, as the newest moment says
   const bits = [];
   if (i.vllm) bits.push('vLLM ' + i.vllm);
   if (i.kernel) bits.push('kernel ' + i.kernel);

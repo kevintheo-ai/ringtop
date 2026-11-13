@@ -67,15 +67,16 @@ def sensors():
 
 def disk():
     """Sectors read and written on the NVMe drives since boot, and the free and total space of the root file system.
-    The sectors are None where no NVMe drive is listed or the list could not be read: no drive is no count of zero."""
-    sectors = None
+    The sectors are None where no NVMe drive is listed or the list could not be read: no drive is no count of zero.
+    `t` is when the list was read, the moment the hub counts their rate over."""
+    sectors, stamp = None, time.time()
     for line in (read("/proc/diskstats") or "").splitlines():
         f = line.split()
         if len(f) > 9 and re.fullmatch(r"nvme\d+n\d+", f[2]):
             sectors = sectors or [0, 0]
             sectors[0] += int(f[5])
             sectors[1] += int(f[9])
-    out = {"read": sectors[0] if sectors else None, "write": sectors[1] if sectors else None}
+    out = {"read": sectors[0] if sectors else None, "write": sectors[1] if sectors else None, "t": stamp}
     try:
         fs = os.statvfs("/")
     except OSError:
@@ -110,10 +111,13 @@ def fabric():
     """The counters of every RDMA port: data sent and received, whether the link is up, its rate and its errors. A
     port is named with what was read of it: a field that could not be read is None, never 0 and never "down", and
     the port is never left out for it. A state file that reads empty said nothing, which is not read: down is one
-    that says something other than ACTIVE. Left out is only a device that has no counters of its traffic at all."""
+    that says something other than ACTIVE. Left out is only a device that has no counters of its traffic at all.
+    Each port says when its data counters were read (`t`): the hub counts its traffic over that moment. The moment
+    of the sample comes before every reading of its round, by as much as the readings before took."""
     out = {}
     for d in sorted(glob.glob("/sys/class/infiniband/*")):
         port = d + "/ports/1/"
+        stamp = time.time()
         data = counts([port + "counters/port_xmit_data", port + "counters/port_rcv_data"])
         if len(data) < 2:
             continue
@@ -124,6 +128,7 @@ def fabric():
         out[os.path.basename(d)] = {
             "tx": data[0],
             "rx": data[1],
+            "t": stamp,
             "up": "ACTIVE" in state if state else None,
             "rate": float(rate.group(1)) if rate else None,
             "err": sum(errors) if errors and None not in errors else None,

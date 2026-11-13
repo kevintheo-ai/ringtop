@@ -90,6 +90,24 @@ def sampler_namespace():
     return namespace
 
 
+def slow_files(namespace, files, clock, step=0.25):
+    """Stands in for the files the sampler's readers open: `files` maps a path to its text, and each file takes
+    `step` seconds of `clock` (a list of one moment, which `time.time()` of the namespace gives back), so what is
+    read later is read later. A path `files` does not hold is no file. Gives back the moment each path was first
+    opened."""
+    opened = {}
+
+    def slow_open(path, *args, **kwargs):
+        if path not in files:
+            raise FileNotFoundError(path)
+        opened.setdefault(path, clock[0])
+        clock[0] += step
+        return io.StringIO(files[path])
+
+    namespace["open"], namespace["time"] = slow_open, types.SimpleNamespace(time=lambda: clock[0])
+    return opened
+
+
 def serve_metrics(namespace, text):
     class Reply:
         length = None  # it names no length: the answer ends where the stand-in says so

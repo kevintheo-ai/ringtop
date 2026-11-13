@@ -22,11 +22,21 @@ const guardWord = (free, guard) => guard == null || free == null || free > guard
 const linkRate = e =>`${e.gbps == null ? '–' : e.gbps.toFixed(1)}${e.capacity == null ? '' : ' of ' + e.capacity.toFixed(0)} Gb/s`;  // looking back, the speed a link ran at is not kept: then only what flowed
 // The note under a figure of the past: its word and that it is as recorded, or that it was not recorded.
 const asRecorded = (v, word) => v == null ? 'not recorded' : word + ', as recorded';
-function linkWays(edges, a, b) {  // what flows from a to b and from b to a on one cable: each direction as its sender counts it, or else as the other end receives it
+function linkWays(edges, a, b) {  // what flows from a to b and from b to a on the cables between them: each direction as its sender counts it, or else as the other end receives it. No end names the port at the far end, so the cables of a pair cannot be matched one by one: an end counts where it sees every cable of the pair and read each one, and where neither end does the direction is unknown, never a part of it called the whole
   const ab = edges.filter(e => e.from === a && e.to === b), ba = edges.filter(e => e.from === b && e.to === a);  // two Sparks alone share two cables: every cable counts
-  const sum = (list, key) => { const known = list.map(e => e[key]).filter(v => v != null); return known.length ? known.reduce((s, v) => s + v, 0) : null; };
-  return [sum(ab, 'gbps') ?? sum(ba, 'rx'), sum(ba, 'gbps') ?? sum(ab, 'rx')];
+  const whole = (list, key, n) => list.length && list.length === n && list.every(e => e[key] != null) ? list.reduce((s, e) => s + e[key], 0) : null;
+  const way = (out, back) => { const n = Math.max(out.length, back.length); return whole(out, 'gbps', n) ?? whole(back, 'rx', n); };
+  return [way(ab, ba), way(ba, ab)];
 }
+function chipWord(edges, a, b) {  // the label of the cable between two Sparks in the scene: the fuller direction in Gb/s and how full it is, one figure against the same rate, then errors or down. Two Sparks alone share two cables: a direction carries what both carry, against the rate of both
+  const edge = (edges || []).filter(e => (e.from === a && e.to === b) || (e.from === b && e.to === a));
+  const ways = linkWays(edge, a, b).filter(v => v != null);  // both directions, also when only one end was read
+  const oneWay = edge.filter(e => e.from === (edge[0] || {}).from), cap = oneWay.reduce((sum, e) => sum + (e.capacity || 0), 0);  // what the cables of this pair carry in one direction
+  const top = Math.max(...ways), err = edge.some(e => e.errors), down = edge.some(e => e.up === false);  // looking back, the state of a link is unknown: that is not "down"
+  return !ways.length ? 'no reading' : `${top.toFixed(top >= 100 ? 0 : 1)} Gb/s${cap ? ` · ${Math.round(top / cap * 100)} %` : ''}${err ? ' · errors' : down ? ' · down' : ''}`;
+}
+// The fuller direction of the busiest port among these links of one Spark, in Gb/s: a figure of the same kind as the rate of a port; null where no direction was read.
+const busiestPort = edges => { const read = (edges || []).flatMap(e => [e.gbps, e.rx]).filter(v => v != null); return read.length ? Math.max(...read) : null; };
 function linkCells(ab, ba) {  // one cable in the list of ring links: what flows out and back in Gb/s as text, and its last cell with its tone: errors, down, or how full the fuller way is. A way nobody read is a dash, and counts for nothing; a link is down only where that was read, at either of its ends; how full it is needs the rate it runs at
   const out = ab.gbps, back = ba ? ba.gbps : ab.rx, word = v => v == null ? '–' : v.toFixed(v >= 100 ? 0 : 1);
   const errors = ab.errors || (ba && ba.errors), down = [ab, ba].some(e => e && e.up === false), read = [out, back].filter(v => v != null), full = read.length && ab.capacity ? Math.round(Math.max(...read) / ab.capacity * 100) + '%' : '–';
@@ -36,6 +46,18 @@ function linkCells(ab, ba) {  // one cable in the list of ring links: what flows
 const farEnd = (e, mine, nodes) => { const peer = nodes.find(c => c.rank === e.to); return !peer ? null : mine.some(x => x !== e && x.to === e.to) ? `${peer.name} ${e.group}` : peer.name; };
 // One reading added up over the Sparks that are live and have it, with how many of them do: a sum is only said together with what it is the sum of.
 const readSum = (nodes, key) => { const read = nodes.filter(n => n.live && n[key] != null); return { sum: read.reduce((a, n) => a + n[key], 0), read: read.length, of: nodes.length }; };
+function ringTraffic(nodes, edges) {  // what the ring carries, every direction of every cable once (as its sender counts it, or else as the far end receives it), with how many Sparks the sum covers, as readSum gives it: a Spark is in it where every direction it sends is known, one without any cable where its ports were read. Not read is unknown, never 0
+  const list = edges || [];
+  const sent = n => {
+    const mine = list.filter(e => e.from === n.rank), alone = mine.filter(e => e.to == null).map(e => e.gbps);  // on a switch nobody else knows what a port sends
+    const peers = new Set([...mine.map(e => e.to), ...list.filter(e => e.to === n.rank).map(e => e.from)].filter(r => r != null));  // every Spark it has a cable to, seen from either end: a port it did not read is known at the far end
+    const ways = [...alone, ...[...peers].map(to => linkWays(list, n.rank, to)[0])];
+    if (!ways.length) return n.live && n.net != null ? 0 : null;  // no cable at all: it sends nothing on the ring, where its ports were read
+    return ways.some(v => v == null) ? null : ways.reduce((a, v) => a + v, 0);
+  };
+  const read = nodes.map(sent).filter(v => v != null);
+  return { sum: read.reduce((a, v) => a + v, 0), read: read.length, of: nodes.length };
+}
 // The note under such a sum: all Sparks, or how many of them were read (looking back: recorded).
 const readWord = (s, past) => s.read === s.of ? 'all Sparks' : `${s.read} of ${s.of} ${past ? 'recorded' : 'read'}`;
 // What stands in place of the list of connections to the engine: that nobody read it (the head is away or has not told yet), that it was read and is empty, or nothing.

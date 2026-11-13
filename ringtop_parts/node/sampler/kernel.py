@@ -44,8 +44,9 @@ def pin_away(engine):
 
 
 def psi(pattern):
-    """The stall totals of CPU, IO and memory from the pressure files the pattern names, in microseconds."""
-    out = {}
+    """The stall totals of CPU, IO and memory from the pressure files the pattern names, in microseconds, and when
+    they were read (`t`): they become shares of time over that moment."""
+    out = {"t": time.time()}
     for name in ("cpu", "io", "memory"):
         for line in (read(pattern % name) or "").splitlines():
             kind, _, rest = line.partition(" ")
@@ -62,10 +63,11 @@ def engine_cgroup():
     """What the cgroup of the engine's container counts: disk, CPU time, throttling, memory, OOM kills, processes and
     pressure. None without a container. A counter from a file that could not be read is None: sent as 0, the next
     reading would give its whole count as the rate of one interval. A file that was read and names no device (no
-    I/O yet) counts zero."""
+    I/O yet) counts zero. `t` is when its files began to be read: the hub counts their rates over that moment."""
     base = cg[0]
     if not base or not os.path.isdir(base):
         return None
+    stamp = time.time()
     stat = read(base + "/io.stat")
     disk = dict.fromkeys(("rbytes", "wbytes", "rios", "wios"), None if stat is None else 0)
     for line in (stat or "").splitlines():
@@ -78,6 +80,7 @@ def engine_cgroup():
         return int(found[key]) if key in found else None
 
     return {
+        "t": stamp,
         "disk": disk,
         "cpu_us": count(cpu, "usage_usec"),
         "throttled": count(cpu, "nr_throttled"),

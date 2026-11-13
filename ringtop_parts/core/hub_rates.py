@@ -13,14 +13,26 @@ SLOW_REACH = 60.0  # seconds a counter of the readings of every 15 s may go unre
 PORT_COUNTERS = ("tx", "rx", "err")  # what a ring port counts: 4-byte units sent and received, and its errors
 
 
+def read_at(reading: dict, t: float) -> float:
+    """When a reading of counters was taken: the moment it names (`t`), else `t`, the moment of the sample that
+    carries it (a sampler from before readings named their own). A rate over the moment of the sample is too high
+    by as much as the reading came later than in the sample before, and the next one too low."""
+    at = num(reading.get("t"))
+    return t if at is None else at
+
+
 def last_read(fabric: dict, basis: dict, t: float) -> dict:
     """What the next sample of a Spark counts its ring ports from: for every device the value each counter was last
-    read with, and when. A counter that was not read this time keeps the reading it has, so a sample nobody read
-    does not cost the traffic of the next one as well. A device the sample names no more has none."""
+    read with, and when (read_at). A counter that was not read this time keeps the reading it has, so a sample
+    nobody read does not cost the traffic of the next one as well. A device the sample names no more has none."""
     return {
         device: {
             **basis.get(device, {}),
-            **{key: (t, counters[key]) for key in PORT_COUNTERS if num(counters.get(key)) is not None},
+            **{
+                key: (read_at(counters, t), counters[key])
+                for key in PORT_COUNTERS
+                if num(counters.get(key)) is not None
+            },
         }
         for device, counters in fabric.items()
     }
@@ -42,7 +54,8 @@ def port_groups(fabric: dict, basis: dict, t: float, reach: float) -> dict[str, 
     when none does and one could not say. Its line rate is the one a function names, None where none could read
     it. Its new errors are what its functions were read to gain, each since its own last reading and whatever the
     other could say: a rise that was read is not lost to a twin that was not. `err_read` says whether the count of
-    every function was read: only then no gain is a count of none."""
+    every function was read: only then no gain is a count of none. Each function counts over the moment its
+    counters were read (read_at)."""
     groups: dict[str, dict] = {}
     for device, counters in fabric.items():
         group = groups.setdefault(
@@ -54,7 +67,7 @@ def port_groups(fabric: dict, basis: dict, t: float, reach: float) -> dict[str, 
         if rate is not None:  # both functions name the same cable
             group["rate"] = max(group["rate"] or 0.0, rate)
         for key in ("tx", "rx"):
-            gain, dt = port_gain(counters, old, key, t, reach)
+            gain, dt = port_gain(counters, old, key, read_at(counters, t), reach)
             known = group[key] is not None and gain is not None and gain >= 0
             group[key] = group[key] + gain * 4 * 8 / dt / 1e9 if known else None  # port_*_data counts 4 bytes
         errors, before = num(counters.get("err")), old.get("err", (t, None))[1]
@@ -148,23 +161,32 @@ class Rates:
         """Change per second of these counters, each since its own last reading: one that was not read this time
         keeps the reading it has, so the next one still has something to count from. Nothing for a counter that went
         back (a restart), for a clock that did not move on, and across more than `reach` seconds without a reading
-        (as far as the hub bridges a hole, unless told otherwise): a mean over a hole is no rate of now."""
+        (as far as the hub bridges a hole, unless told otherwise): a mean over a hole is no rate of now. A reading
+        that names when it was read (`t` among the values) is counted from that moment (read_at); `t` is no counter.
+        Such a reading with the moment of the one counted last came once more (a sample copies the line of
+        nvidia-smi until a new one is printed): it is no new reading and gives what that one gave."""
         basis, reach, out = self.counters.setdefault(scope, {}), reach or self.reach, {}
+        named, t = num(values.get("t")) is not None, read_at(values, t)
+        if named and basis.get("t", (None, None))[0] == t:
+            return dict(basis["t"][1])
         for key, value in values.items():
-            if value is None:
+            if value is None or key == "t":
                 continue
             at, old = basis.get(key, (t, None))
             if old is not None and value >= old and 0 < t - at <= reach:
                 out[key] = (value - old) / (t - at)
             basis[key] = (t, value)
+        if named:
+            basis["t"] = (t, out)  # beside the counters: the moment of this reading and what it gave
         return out
 
     def _gpu_time(self, name: str, node: dict, gpu: dict, sample: dict) -> None:
-        """nvidia-smi counts microseconds spent at each limit; per second that is the share of time."""
+        """nvidia-smi counts microseconds spent at each limit; per second that is the share of time, over the moments
+        nvidia-smi printed its lines (`t`), not the moments of the samples that copied them."""
         rate = self._rate(
             (name, "gpu"),
             sample.get("t", time.time()),
-            {k: gpu.get(k) for k in ("cap_us", "sw_therm_us", "hw_therm_us", "brake_us")},
+            {k: gpu.get(k) for k in ("cap_us", "sw_therm_us", "hw_therm_us", "brake_us", "t")},
         )
         share = {key: rounded(value / 1e4, 2) for key, value in rate.items()}
         # slowed down by software or by hardware: the sum of the two that could be counted. Neither counted (a reset
@@ -178,7 +200,7 @@ class Rates:
 
     def _pressure(self, name: str, node: dict, sample: dict) -> None:
         """Stall time of the whole Spark and of the engine's container as shares of time, and what the container uses of
-        disk, CPU and memory. Without a container none of its figures lingers."""
+        disk, CPU and memory, each over the moment it was read. Without a container none of its figures lingers."""
         t = sample.get("t", time.time())
         share = self._rate((name, "psi"), t, sample.get("psi") or {})
 
@@ -213,7 +235,8 @@ class Rates:
                 **box["disk"],
                 "cpu_us": box["cpu_us"],
                 "throttled": box["throttled"],
-                **{"psi_" + k: v for k, v in box["psi"].items()},
+                "t": box.get("t"),  # its pressure files are read with it and count over the same moment
+                **{"psi_" + k: v for k, v in box["psi"].items() if k != "t"},
             },
         )
         node.update(

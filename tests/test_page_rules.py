@@ -1,6 +1,8 @@
 """The rules of the page, run through node: what the page may claim, now and looking back."""
 
-from tests.fixtures import LOOK_BACK, TRACKS, needs_node, page_rules
+import json
+
+from tests.fixtures import LOOK_BACK, TRACKS, hub_for, needs_node, page_rules, ring_map
 
 
 @needs_node
@@ -159,6 +161,152 @@ def test_a_link_counts_each_direction_once_from_whichever_end_was_read():
     )
     assert got[:7] == [[10, 5], [10, 4], [9, 5], [10, 4], [9, 5], [None, None], [None, None]], got
     assert got[7:] == [[30, 12], [30, 10]], got  # two Sparks share two cables: both count, in each direction
+
+
+@needs_node
+def test_two_cables_between_two_sparks_count_from_the_end_that_read_them_all():
+    """Two Sparks alone share two cables. Where one end read one of them and the other end read both, the cable the
+    sender did not read fell out: the label said "120 Gb/s · 30 %" for 120 + 60 Gb/s, and the card of the engine 160
+    for 220, called the whole. A direction counts as its sender counts it where the sender read every cable, else as
+    the other end receives it where that end did; where neither end read all of them it is unknown. An end that sees
+    fewer cables than the other one is not the whole either."""
+    got = page_rules(
+        "const e = (from, to, gbps, rx, group = 'f0') => ({ from, to, gbps, rx, group, capacity: 200, up: true, errors: false });"
+        "const pair = [e(0, 1, 120, 20), e(0, 1, null, null, 'f1'), e(1, 0, 20, 120), e(1, 0, 20, 60, 'f1')];"
+        "return [linkWays(pair, 0, 1), chipWord(pair, 0, 1), ringTraffic([{ rank: 0, live: true }, { rank: 1, live: true }], pair),"
+        " linkWays([e(0, 1, 120, 20), e(0, 1, null, null, 'f1'), e(1, 0, 20, null), e(1, 0, 20, 60, 'f1')], 0, 1),"
+        " linkWays([e(0, 1, 10, 4), e(0, 1, 20, 6, 'f1'), e(1, 0, 5, 9)], 0, 1)];"
+    )
+    assert got[0] == [180, 40], got[0]  # was [120, 40]: the second cable, read at the far end, fell out
+    assert got[1] == "180 Gb/s · 45 %", got[1]  # was "120 Gb/s · 30 %"
+    assert got[2] == {"sum": 220, "read": 2, "of": 2}, got[2]  # was 160
+    assert got[3] == [None, 40], got[3]  # one cable read at each end, not the same one: unknown, not 120
+    assert got[4] == [30, 10], got[4]  # the far end sees one of two cables: what it sends is known where it arrives
+
+
+@needs_node
+def test_the_label_of_a_cable_says_the_fuller_direction_against_the_rate_of_one_direction():
+    """The label of a cable in the scene added both directions up and set beside it how full the fuller one is: a
+    cable with 150 Gb/s one way and 20 back stood as "170 Gb/s · 75 %", one with 150 each way as "300 Gb/s · 75 %",
+    beside a rate of 200 Gb/s per port. The figure is the fuller direction, the share is that direction against the
+    rate of one direction; two Sparks alone share two cables, and a direction then carries what both carry."""
+    got = page_rules(
+        "const e = (from, to, gbps, rx, more = {}) => ({ from, to, gbps, rx, capacity: 200, up: true, errors: false, ...more });"
+        "return [chipWord([e(0, 1, 150, 20), e(1, 0, 20, 150)], 0, 1), chipWord([e(0, 1, 150, 20), e(1, 0, null, null)], 0, 1),"
+        " chipWord([e(0, 1, 30, null), e(1, 0, null, null)], 0, 1), chipWord([e(0, 1, null, null), e(1, 0, null, null)], 0, 1),"
+        " chipWord([e(0, 1, 120, 20), e(0, 1, 60, 20), e(1, 0, 20, 120), e(1, 0, 20, 60)], 0, 1),"
+        " chipWord([e(0, 1, 150, 20, { capacity: null }), e(1, 0, 20, 150, { capacity: null })], 0, 1),"
+        " chipWord([e(0, 1, 150, 20, { errors: true }), e(1, 0, 20, 150)], 0, 1), chipWord([e(0, 1, 4.8, 1), e(1, 0, 1, 4.8)], 0, 1),"
+        " chipWord([e(0, 1, 150, 20), e(1, 0, 20, 150), e(1, 2, 190, 190, { errors: true }), e(2, 1, 190, 190)], 0, 1)];"
+    )
+    assert got[0] == "150 Gb/s · 75 %", got[0]  # was "170 Gb/s · 75 %"
+    assert got[1] == "150 Gb/s · 75 %", got[1]  # one end silent: the other one knows both directions
+    assert got[2] == "30.0 Gb/s · 15 %", got[2]  # one direction read: that one, never "no reading"
+    assert got[3] == "no reading", got[3]
+    assert got[4] == "180 Gb/s · 45 %", got[4]  # two cables: 120 + 60 against 2 x 200; was "220 Gb/s · 45 %"
+    assert got[5] == "150 Gb/s", got[5]  # looking back the rate is not kept: no share; was "170 Gb/s"
+    assert got[6] == "150 Gb/s · 75 % · errors", got[6]
+    assert got[7] == "4.8 Gb/s · 2 %", got[7]  # was "5.8 Gb/s · 2 %"
+    assert got[8] == got[0], got[8]  # the cables of other Sparks are no part of this label
+
+
+@needs_node
+def test_the_busiest_port_of_a_spark_is_its_fuller_direction_never_a_sum():
+    """The card of the ports of a Spark set "Gb/s now" beside "200 Gb/s per port": every port in both directions
+    added up, so a Spark with two cables at 150 each way stood at 600 beside a rate of 200. Beside the rate of a port
+    stands a figure of the same kind: the fuller direction of its busiest port. A direction nobody read counts for
+    nothing, and with none read there is no figure."""
+    got = page_rules(
+        "const e = (gbps, rx) => ({ gbps, rx });"
+        "return [busiestPort([e(150, 20), e(30, 190)]), busiestPort([e(null, null), e(30, null)]), busiestPort([e(null, null)]),"
+        " busiestPort([]), busiestPort(null)];"
+    )
+    assert got == [190, 30, None, None, None], got
+
+
+@needs_node
+def test_the_traffic_of_the_ring_counts_every_direction_of_every_cable_once():
+    """The card of the engine added up what every Spark sent and received: each transfer counted twice, once at its
+    sender and once at its receiver (the demo showed four cables at 284.4 Gb/s together and the card at 568.7). It
+    counts each direction of each cable once, as its sender counts it or else as the far end receives it. A Spark
+    is in the sum where every direction it sends is known; one that is away is still known through its neighbours,
+    but a direction neither end read leaves its sender out, and the note says how many Sparks the sum covers."""
+    got = page_rules(
+        "const live = r => ({ rank: r, live: true }), away = r => ({ rank: r, live: false }), nodes = [0, 1, 2, 3].map(live);"
+        "const e = (from, to, gbps, rx) => ({ from, to, gbps, rx });"
+        "const ring = (k = {}) => [e(0, 1, 10, 20), e(0, 3, 80, 70), e(1, 2, 30, 40), e(1, 0, 20, 10), e(2, 3, 50, 60), e(2, 1, 40, 30),"
+        " e(3, 0, 70, 80), e(3, 2, 60, 50)].map(x => k[x.from] ? { ...x, ...k[x.from](x) } : x);"
+        "const none = () => ({ gbps: null, rx: null });"
+        "return [ringTraffic(nodes, ring()), ringTraffic([live(0), live(1), away(2), live(3)], ring({ 2: none })),"
+        " ringTraffic([live(0), live(1), away(2), away(3)], ring({ 2: none, 3: none })),"
+        " ringTraffic(nodes, ring({ 1: x => x.to === 0 ? none() : {}, 0: x => x.to === 1 ? { rx: null } : {} })),"
+        " ringTraffic(nodes, [0, 1, 2, 3].flatMap(r => [e(r, null, 10 + r, 5), e(r, null, 20, 5)])),"
+        " ringTraffic(nodes, [0, 1, 2, 3].flatMap(r => [e(r, null, r === 2 ? null : 10 + r, 5), e(r, null, 20, 5)])),"
+        " ringTraffic([live(0), live(1)], [e(0, 1, 10, 30), e(0, 1, 20, 40), e(1, 0, 30, 10), e(1, 0, 40, 20)]),"
+        " ringTraffic([{ ...live(0), net: 0 }], []), ringTraffic([live(0)], []), ringTraffic([away(0)], []),"
+        " ringTraffic(nodes, ring().filter(x => !(x.from === 1 && x.to === 0)))];"
+    )
+    assert got[0] == {"sum": 360, "read": 4, "of": 4}, got[0]  # was 720: every Spark's sent plus received
+    assert got[1] == {"sum": 360, "read": 4, "of": 4}, got[1]  # Spark 2 away: what it sends, its neighbours received
+    assert got[2] == {"sum": 140, "read": 2, "of": 4}, got[2]  # 2 and 3 away: the cable between them nobody read
+    assert got[3] == {"sum": 310, "read": 3, "of": 4}, got[3]  # one cable read one way only: its other way left out
+    assert got[4] == {"sum": 126, "read": 4, "of": 4}, got[4]  # on a switch: what each Spark sends
+    assert got[5] == {"sum": 94, "read": 3, "of": 4}, got[5]  # on a switch nobody else knows what a port sends
+    assert got[6] == {"sum": 100, "read": 2, "of": 2}, got[6]  # two Sparks alone: both cables, each way once
+    assert got[7] == {"sum": 0, "read": 1, "of": 1}, got[7]  # one Spark alone, its ports read: nothing on a ring
+    assert got[8] == got[9] == {"sum": 0, "read": 0, "of": 1}, got[8:10]  # its ports not read, or away: not 0
+    assert got[10] == {"sum": 360, "read": 4, "of": 4}, got[10]  # a port of Spark 1 never read: Spark 0 received it
+
+
+def unread_ports(node_map, unread, fabric):
+    """What the page gets of a hub of four Sparks that answer every sample, each port at 10 Gb/s each way, while the
+    Sparks in `unread` send `fabric` in place of their ports from the first sample on (None as a reader that failed
+    sends, {} where there is no RDMA device): its Sparks and its edges as JSON."""
+    hub, dev = hub_for(node_map), ("rocep1s0f0", "roceP2p1s0f0", "rocep1s0f1", "roceP2p1s0f1")
+    count = 5e9 / 8 / 4  # counts of 4 bytes per second for 5 Gb/s on each of the two functions of a port
+    for k in range(6):
+        ports = {
+            d: {"tx": int(count * 2 * k), "rx": int(count * 2 * k), "up": True, "rate": 200.0, "err": 0} for d in dev
+        }
+        for n in hub.cluster["nodes"]:
+            sample = {"fabric": fabric if n["rank"] in unread else ports, "gpu": {}, "mem": {}}
+            hub.ingest(n["name"], {"t": 1_800_000_000.0 + 2 * k, **sample})
+    nodes = [{"rank": n["rank"], "live": n["live"], "net": n.get("net")} for n in hub.nodes.values()]
+    return json.dumps(nodes), json.dumps(hub.edges_view())
+
+
+@needs_node
+def test_a_spark_whose_ports_nobody_read_is_no_spark_that_sends_nothing():
+    """A Spark answered, but its sampler could not read its ports (a reader that failed, or no RDMA device): it has
+    no edge of its own. The card of the engine counted it as read with 0: "0.0 Gb/s, all Sparks" where no Spark read
+    its ports, and on a ring of four with one such Spark 60 of 80, called the whole. Its directions on a ring are
+    known at the far end, as what its neighbours receive; on a switch nobody knows them, and with no edge at all it is
+    not read. Not read is unknown, never 0."""
+    switch = {
+        "nodes": [
+            {"name": f"dgx{i}", "rank": i, "head": i == 0, "roce_hcas": ["rocep1s0f0", "roceP2p1s0f0"]}
+            for i in range(4)
+        ]
+    }
+    cases = [
+        (ring_map(), (), None),
+        (ring_map(), (2,), None),
+        (ring_map(), (2,), {}),
+        (switch, (), None),
+        (switch, (2,), None),
+        (ring_map(), (0, 1, 2, 3), None),
+        (ring_map(), (0, 1, 2, 3), {}),
+    ]
+    calls = ", ".join(
+        f"((N, E) => [ringTraffic(N, E).sum, readWord(ringTraffic(N, E), false)])({n}, {e})"
+        for n, e in (unread_ports(*c) for c in cases)
+    )
+    got = page_rules(f"return [{calls}];")
+    assert got[0] == [80, "all Sparks"], got[0]  # every port read: eight directions of 10 Gb/s
+    assert got[1] == got[2] == [80, "all Sparks"], got[1:3]  # Spark 2 unread: its neighbours received; was 60
+    assert got[3] == [80, "all Sparks"], got[3]  # on a switch: four Sparks, two ports each
+    assert got[4] == [60, "3 of 4 read"], got[4]  # on a switch nobody else knows what it sends; was "all Sparks"
+    assert got[5] == got[6] == [0, "0 of 4 read"], got[5:]  # no Spark read its ports: was "0.0 Gb/s, all Sparks"
 
 
 @needs_node

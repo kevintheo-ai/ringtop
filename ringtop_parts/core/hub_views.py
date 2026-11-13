@@ -180,7 +180,8 @@ class Views:
 
     def identity_view(self) -> dict:
         """What is running and on what: model, context length, image, profile, container state, versions, cluster shape,
-        memory guard and sampling interval. What the head tells of it is None where its word is too old to stand."""
+        memory guard and sampling interval, and whether it is the demo. What the head tells of it is None where its word is
+        too old to stand."""
         info = self.facts()
         box = info.get("container") or {}
         models = (info.get("models") or {}).get("data") or []
@@ -197,6 +198,8 @@ class Views:
             "shape": self.shape,
             "memguard_gib": self.memguard_gib,
             "interval": self.interval,
+            # only where the demo feeds the hub: the moment of a real cluster is as before
+            **({"demo": True} if self.demo else {}),
         }
 
     def run_view(self, engine: dict) -> dict:

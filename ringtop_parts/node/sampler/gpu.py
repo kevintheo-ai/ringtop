@@ -40,8 +40,9 @@ def gpu_columns():
 
 
 def gpu_loop():
-    """Keeps one nvidia-smi running that prints a line per interval and takes every line into `gpu`; starts it again
-    when it dies."""
+    """Keeps one nvidia-smi running that prints a line per interval and takes every line into `gpu`, with the moment
+    it came (`t`): its counters become shares of time over that moment, whenever a sample copies it. Starts it
+    again when it dies."""
     columns = gpu_columns()
     fields = ",".join(f for f, _ in columns)
     while True:
@@ -64,8 +65,11 @@ def gpu_loop():
         for line in p.stdout:
             f = [x.strip() for x in line.split(",")]
             if len(f) == len(columns):
-                gpu.update({key: (value if key in TEXT_FIELDS else num(value)) for (_, key), value in zip(columns, f)})
-                gpu_seen[0] = time.time()
+                seen = time.time()  # values and moment in one step: the sampling loop may copy them in between
+                gpu.update(
+                    {key: (value if key in TEXT_FIELDS else num(value)) for (_, key), value in zip(columns, f)}, t=seen
+                )
+                gpu_seen[0] = seen
         p.wait()
         time.sleep(5)  # it died (driver trouble): try again; gpu_now stops reporting the old values meanwhile
 

@@ -39,7 +39,8 @@ def texts(value):
 # the head serves: free text nothing on the calm page shows. What a field is listed for is that a script of the calm
 # page reads it.
 PLACE = {"name": text, "rank": number, "head": flag}  # a Spark as the cluster lists it
-IDENTITY = {"interval": number, "memguard_gib": number}
+# demo: the calm page then says that no real cluster is shown
+IDENTITY = {"interval": number, "memguard_gib": number, "demo": flag}
 ENGINE = {
     "state": text,
     "word": text,

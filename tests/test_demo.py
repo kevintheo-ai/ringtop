@@ -6,8 +6,10 @@ import time
 
 from ringtop_parts.core.cluster import parse_cluster
 from ringtop_parts.core.demo import Demo
+from ringtop_parts.core.demo_forms import FORMS, demo_map
 from ringtop_parts.core.hub import Hub
-from tests.fixtures import canon, demo_round, ring_map
+from ringtop_parts.core.wall import wall_moment
+from tests.fixtures import canon, demo_round, hub_for, ring_map
 
 
 def test_the_demo_shows_single_tracks_without_hardware():
@@ -31,7 +33,7 @@ def test_the_demo_shows_single_tracks_without_hardware():
 
 
 # every sample, every view of the page and every fifth deep view of a round and a bit, as one digest
-GOLDEN_ROUND = "76cc6d6dacf1f79ee7c391e664ffd66bf2862cc990838b8db8d21da45ff50dc9"
+GOLDEN_ROUND = "b780c722eaa489bb7f15b9a37e08001113c330908c94d54a2da133e5d6bec461"
 
 
 def test_a_round_of_the_demo_gives_the_same_samples_and_views_as_ever():
@@ -55,3 +57,16 @@ def test_a_round_of_the_demo_gives_the_same_samples_and_views_as_ever():
     assert seen == {"samples": 632, "views": 160, "deep": 32}, seen  # one Spark is away for 8 of the 160 ticks
     assert {"Unreachable", "Reachable again", "Own engine answers", "Slowing down", "Started", "Finished"} <= said, said
     assert digest.hexdigest() == GOLDEN_ROUND, digest.hexdigest()
+
+
+def test_every_moment_of_the_demo_says_it_is_the_demo_and_no_moment_of_a_real_cluster_does():
+    """A user took the demo for his own cluster: only a word of its image said "demo". The hub the demo feeds says so
+    in a field of its own, in the identity of every moment and on a wall, whatever made-up cluster it plays. A hub that
+    the demo does not feed has no such field: the moment of a real cluster is as before."""
+    for form in FORMS:
+        hub = demo_round(1, node_map=demo_map(form), form=form)
+        assert hub.view()["identity"]["demo"] is True, form
+        assert wall_moment(hub.view())["identity"]["demo"] is True, form
+    real = hub_for()
+    assert "demo" not in real.view()["identity"], real.view()["identity"]
+    assert "demo" not in wall_moment(real.view())["identity"], wall_moment(real.view())["identity"]

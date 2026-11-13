@@ -495,3 +495,100 @@ def test_errors_one_function_of_a_cable_gained_are_said_while_the_count_of_its_t
             assert errors(127, 9, 3) == (True, said * 2)  # the twin counts on from the 0 it last read: three more
     finally:
         time.time = real
+
+
+def test_a_ring_port_is_counted_over_the_moment_its_counters_were_read():
+    """The sample of a Spark is stamped when its round begins, and its ring ports are read after the GPU, the cores,
+    the CPU and the memory: later by as much as those took, more in one round than in another. The traffic was
+    counted over the stamps of the samples: a port at 195 Gb/s read 0.15 s later than in the round before showed
+    209.6 Gb/s, and 180.4 in the round after. A port that names when its counters were read is counted over that
+    moment; one that does not, from an older sampler, over the stamp, as before."""
+    unit = 195e9 / 32  # 4-byte units in a second at 195 Gb/s
+
+    def seen(named):
+        hub, out = hub_for(), []
+        for t, late in ((1000.0, 0.01), (1002.0, 0.16), (1004.0, 0.01)):
+            port = counters(round(unit * (t + late - 1000.0)))
+            hub.ingest("dgx0", {"t": t, "fabric": {"rocep1s0f0": {**port, "t": t + late} if named else port}})
+            out.append({(e["from"], e["to"]): e["gbps"] for e in hub.edges_view()}[(0, 1)])
+        return out
+
+    assert seen(True) == [None, 195.0, 195.0], seen(True)
+    assert seen(False) == [None, 209.62, 180.38], seen(False)
+
+
+def test_the_disk_the_pressure_the_cgroup_and_the_gpu_are_counted_over_the_moment_they_were_read():
+    """The disk, the pressure files and the engine's cgroup are read after the ring ports, later than the stamp of
+    the sample; the line of nvidia-smi that a sample copies was printed before it. Each names when it was read and
+    is counted over that moment. Here every one was read 0.3 s later in the second sample than in the first: true
+    are 102.4 MB/s from the disk, 20 % of the time stalled, 50 MB/s and 3 cores in the cgroup, half the time at the
+    power cap. Without such moments, from an older sampler, the stamps count, as before: 2.3 s over 2."""
+
+    def figures(named):
+        hub = hub_for()
+        for t, late in ((1000.0, 0.0), (1002.0, 0.3)):
+            s = t + late - 1000.0  # seconds since the first reading, by the moments of reading
+            disk = {"read": round(s * 200_000), "write": 0}  # sectors of 512 bytes
+            cg = {"disk": {"rbytes": round(s * 50e6), "wbytes": 0, "rios": 0, "wios": 0}, "cpu_us": round(s * 3e6)}
+            cg.update(throttled=0, psi={}, mem=None, peak=None, oom=0, pids=1)
+            readings = {
+                "disk": disk,
+                "psi": {"cpu_some": round(s * 200_000)},
+                "cg": cg,
+                "gpu": {"cap_us": round(s * 5e5)},
+            }
+            if named:
+                for reading in readings.values():
+                    reading["t"] = t + late
+            hub.ingest("dgx0", {"t": t, "fabric": {}, **readings})
+        node = hub.nodes["dgx0"]
+        return node["disk_read"], node["psi_cpu"], node["eng_read_mb"], node["eng_cores"], node["cap_pct"]
+
+    assert figures(True) == (102.4, 20.0, 50.0, 3.0, 50.0), figures(True)
+    assert figures(False) == (117.8, 23.0, 57.5, 3.45, 57.5), figures(False)
+
+
+def test_the_cables_and_the_kernels_memory_counters_are_counted_over_the_moment_they_were_read():
+    """Every 15 s a sampler stamps its slow readings before the NVML fields, and reads the cables and the kernel's
+    memory counters after them, with calls of ethtool in between. Each names when it was read and is counted over
+    that moment: here 1 s later in the second reading than in the first, at 10 major faults a second and 25 Gb/s on
+    the wire. Without such moments, from an older sampler, the stamps count, as before: 16 s over 15."""
+
+    def figures(named):
+        hub = hub_for()
+        node = hub.nodes["dgx0"]
+        for t, late in ((100.0, 0.0), (115.0, 1.0)):
+            s = t + late - 100.0
+            vm = dict.fromkeys(("compact_migrate_scanned", "pgmigrate_fail", "allocstall", "pswpout"), 0)
+            vm["pgmajfault"], row = round(s * 10), {"tx_bytes_phy": round(s * 25e9 / 8)}
+            if named:
+                vm["t"] = row["t"] = t + late
+            memory = {"mem": {}, "vm": vm, "blocks_16m": 0, "free_big": 0}
+            hub._deep("dgx0", node, {"memory": memory, "cables": {"f0": row}}, t)
+        return node["majfault_s"], hub.cables["dgx0"]["f0"]["gb_tx"]
+
+    assert figures(True) == (10.0, 25.0), figures(True)
+    assert figures(False) == (10.7, 26.67), figures(False)
+
+
+def test_a_line_of_nvidia_smi_that_a_sample_copies_once_more_keeps_its_share():
+    """nvidia-smi prints a line per interval, at the pace of the samples but in a phase of its own, so now and then
+    two samples copy the same line. Counted once more over no time, that line gave no share: a dash on the page and
+    a gap in the curve for one sample. A line with the moment of the one counted last is no new reading: the share
+    of the last two lines stands, and the next line is counted over the moments of the lines. Once nvidia-smi sends
+    no line at all (the sampler sends none after 10 s), there is no share, as before. A sampler that names no
+    moments counts over its samples, as before."""
+
+    def shares(named):
+        hub, out = hub_for(), []
+        lines = ((999.9, 0), (1001.9, 1_000_000), (1001.9, 1_000_000), (1005.95, 2_012_500))  # moment, cap_us
+        for k, (moment, cap) in enumerate(lines):
+            line = {"cap_us": cap, "t": moment} if named else {"cap_us": cap}
+            hub.ingest("dgx0", {"t": 1000.0 + 2 * k, "gpu": line})
+            out.append(hub.nodes["dgx0"]["cap_pct"])
+        hub.ingest("dgx0", {"t": 1008.0, "gpu": {}})  # no line for 10 s: the sampler sends none
+        out.append(hub.nodes["dgx0"]["cap_pct"])
+        return out, [v for _, v in hub.history["dgx0.cap_pct"]]
+
+    assert shares(True) == ([None, 50.0, 50.0, 25.0, None], [50.0, 50.0, 25.0]), shares(True)
+    assert shares(False) == ([None, 50.0, 0.0, 50.62, None], [50.0, 0.0, 50.62]), shares(False)

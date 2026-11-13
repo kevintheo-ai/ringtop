@@ -1,10 +1,11 @@
 """The run on both pages, driven without a browser: how far it is, and what stands where its count was not read."""
 
 import json
+import re
 
 from ringtop_parts.core.cluster import parse_runs
 from ringtop_parts.core.wall import wall_moment
-from tests.fixtures import hub_for, needs_node
+from tests.fixtures import PAGE, hub_for, needs_node
 from tests.test_page_sheet import sheet
 from tests.test_page_wall import SAID, moments, wall
 
@@ -122,3 +123,22 @@ def test_a_queue_of_more_than_64_stations_reaches_the_page_whole():
     assert line == "Queue 9: step 66 of 70, next Station 67", line  # was "Queue 9: step 64 of 64"
     assert head == "step 66 of 70: Station 66", head  # was "step 64 of 64"
     assert len(dots) == 70 and dots[65] == "Station 66: running now" and dots[69] == "Station 70: waiting", dots
+
+
+def test_the_line_of_stations_of_a_long_queue_stays_inside_the_run_panel():
+    """Each station of a queue stood at least 5 px wide, its dot 8 px: 187 of them ran over the run panel and out of
+    the window, and the page scrolled sideways (measured in WebKit at 1064 x 625: the last dot at 1604 px, the panel
+    ends at 1046). A station has no width of its own beyond its share of the line, and its dot is never wider than
+    its station: many stations become thin marks side by side, every one of them still there (in WebKit with 187
+    and with 500 stations the last dot ends inside the panel, at 1064 x 625 and at 400 px)."""
+    style = (PAGE.parent / "style.css").read_text()
+
+    def rule(selector):
+        found = re.search(rf"^{re.escape(selector)}\{{([^}}]*)\}}", style, re.M)
+        assert found, f"no rule for {selector}"
+        return found.group(1).split(";")
+
+    station, dot = rule("#stations li"), rule("#stations li::after")
+    assert "flex:1 1 0" in station and "min-width:0" in station, station  # was min-width:5px
+    assert "width:min(8px,100%)" in dot, dot  # was width:8px
+    assert "left:50%" in dot and "margin-left:max(-4px,-50%)" in dot, dot  # its middle on the middle of its station

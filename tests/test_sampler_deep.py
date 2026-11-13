@@ -2,7 +2,7 @@
 
 import types
 
-from tests.fixtures import sampler_namespace
+from tests.fixtures import sampler_namespace, slow_files
 
 
 def test_isolated_cores_keep_their_masks():
@@ -62,3 +62,12 @@ def test_cores_whose_limit_flag_was_not_read_are_not_counted_as_unlimited():
     assert ns["core_clocks"]() == ([2800, 3880, None], None)  # was 1: the flag nobody read counted as not limited
     ns["capacity"] = []
     assert ns["core_clocks"]() == ([], None)  # was ([], 0): no core listed, none looked at
+
+
+def test_the_kernels_memory_counters_name_the_moment_they_were_read():
+    """What the kernel did to find memory becomes rates in the hub, every 15 s. Its counters are read after the NVML
+    fields, the cables with their calls of ethtool and the memory figures: they name when they were read."""
+    ns, clock = sampler_namespace(), [1000.0]
+    opened = slow_files(ns, {"/proc/meminfo": "MemTotal:  4 kB\n", "/proc/vmstat": "pgmajfault 7\n"}, clock)
+    got = ns["memory_deep"]()
+    assert got["vm"]["t"] == opened["/proc/vmstat"] == 1000.25 and got["vm"]["pgmajfault"] == 7, (got, opened)

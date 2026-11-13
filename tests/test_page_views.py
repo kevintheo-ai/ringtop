@@ -2,6 +2,7 @@
 
 import json
 
+from ringtop_parts.connect.server import PAGE, WALL
 from tests.fixtures import needs_node
 from tests.test_page_sheet import moments, sheet
 
@@ -75,7 +76,8 @@ def test_the_traffic_of_the_ring_says_how_many_sparks_it_is_the_sum_of():
     others stood under "all Sparks"; and the list of ring links in nerd mode wrote "0.0" for a cable nobody read."""
     part = (
         "server.say({ ...LIVE, t: LIVE.t + 2, nodes: LIVE.nodes.map((n, i) => ({ ...n, net: i ? 1.5 : null })),"
-        " edges: LIVE.edges.map((e, i) => i ? e : { ...e, gbps: null, rx: null }) }); null"
+        " edges: LIVE.edges.map(e => e.from === 0 && e.to === 1 ? { ...e, gbps: null, rx: null }"
+        " : { ...e, gbps: 1.5, rx: e.from === 1 && e.to === 0 ? null : 1.5 }) }); null"
     )
     got = sheet(
         [
@@ -88,8 +90,9 @@ def test_the_traffic_of_the_ring_says_how_many_sparks_it_is_the_sum_of():
         ]
     )
     assert "all Sparks" in got[0], got[0]
-    assert "4.5 Gb/s" in got[2] and "3 of 4 read" in got[2] and "all Sparks" not in got[2], got[2]
-    assert got[4][:3] == ["dgx0 ↔ dgx1", "–", "0.0"], got[4]  # what the first Spark sent was not read: was "0.0"
+    # what the first Spark sends to the second nobody read, at neither end: the others send 3.0 Gb/s each
+    assert "9.0 Gb/s" in got[2] and "3 of 4 read" in got[2] and "all Sparks" not in got[2], got[2]
+    assert got[4][:3] == ["dgx0 ↔ dgx1", "–", "1.5"], got[4]  # what the first Spark sent was not read: was "0.0"
 
 
 @needs_node
@@ -504,3 +507,95 @@ def test_the_answer_of_an_internal_case_says_so_in_the_table_of_answers():
         ]
     )
     assert got[1] == ["internal 3"], got[1]
+
+
+@needs_node
+def test_the_label_of_a_cable_and_the_card_of_the_ports_say_one_direction_beside_a_rate_of_one():
+    """A cable carries 150 Gb/s one way and 20 back, at a rate of 200 Gb/s per port, and the Sparks say 999 Gb/s
+    over all their ports in both directions. The label of that cable in the scene said "170 Gb/s · 75 %", and the
+    card of the ports of a Spark at its end set "999.0 Gb/s now" beside "200 Gb/s per port". Both say the fuller
+    direction now, of the cable and of the busiest port: figures of the same kind as the rate beside them."""
+    uneven = (
+        "server.say({ ...LIVE, t: LIVE.t + 2, nodes: LIVE.nodes.map(n => ({ ...n, net: 999 })), edges: LIVE.edges.map(e =>"
+        " e.from === 0 && e.to === 1 ? { ...e, gbps: 150, rx: 20 } : e.from === 1 && e.to === 0 ? { ...e, gbps: 20, rx: 150 } : e) }); null"
+    )
+    chips = "document.querySelector('#tags').under().filter(e => e.classList.contains('linkchip')).map(e => e.under().map(x => x.text).join(''))"
+    hero = "document.querySelector('#panel').under().filter(e => e.matches('div.hero')).map(h => h.under().map(e => e.text).filter(Boolean))"
+    got = sheet([uneven, chips, f"setView('node', S.nodes[1].name); setPart('qsfp_cage'); {hero}"])
+    assert "150 Gb/s · 75 %" in got[1] and not any(c.startswith("170 ") for c in got[1]), got[1]
+    # was "999.0", "Gb/s now"
+    assert got[2] == [["2/2", "links up", "200", "Gb/s per port", "150.0", "Gb/s busiest port"]], got[2]
+
+
+@needs_node
+def test_the_card_of_the_engine_counts_the_traffic_of_the_ring_once_not_at_both_ends():
+    """Every Spark says what it sent plus what it received; the card of the engine added that up over the Sparks and
+    so counted every transfer twice. Four cables that carry 360 Gb/s in their eight directions, with 999 Gb/s said
+    by each Spark, stood as 3996.0 Gb/s. The card counts each direction once: 360.0 Gb/s, all Sparks. With the third
+    Spark away and one cable read in one direction only, the Spark that sends the other way is left out, the one
+    that is away is known through its neighbours, and the note says so."""
+    ways = "{ '0>1': 10, '1>0': 20, '1>2': 30, '2>1': 40, '2>3': 50, '3>2': 60, '3>0': 70, '0>3': 80 }"
+    known = (
+        f"(D => LIVE.edges.map(e => ({{ ...e, gbps: D[e.from + '>' + e.to], rx: D[e.to + '>' + e.from] }})))({ways})"
+    )
+    gaps = (
+        "(e => e.from === 2 || (e.from === 1 && e.to === 0) ? { ...e, gbps: null, rx: null }"
+        " : e.from === 0 && e.to === 1 ? { ...e, rx: null } : e)"
+    )
+    tile = (
+        "document.querySelector('#vitals').children.find(d => d.children[0].text === 'Ring traffic')"
+        ".under().map(e => e.text).filter(Boolean)"
+    )
+    got = sheet(
+        [
+            f"server.say({{ ...LIVE, t: LIVE.t + 2, nodes: LIVE.nodes.map(n => ({{ ...n, net: 999 }})), edges: {known} }}); {tile}",
+            f"server.say({{ ...LIVE, t: LIVE.t + 4, nodes: LIVE.nodes.map((n, i) => ({{ ...n, net: 999, live: i !== 2 }})),"
+            f" edges: {known}.map({gaps}) }}); {tile}",
+            f"server.say({{ ...LIVE, t: LIVE.t + 6, nodes: LIVE.nodes.map((n, i) => ({{ ...n, net: 999, live: i !== 2 }})),"
+            f" edges: {known}.map(e => e.from === 2 ? {{ ...e, gbps: null, rx: null }} : e) }}); {tile}",
+        ]
+    )
+    assert got[0] == ["Ring traffic", "360.0 Gb/s", "all Sparks"], got[0]  # was "3996.0 Gb/s"
+    assert got[1] == ["Ring traffic", "310.0 Gb/s", "3 of 4 read"], got[1]
+    assert got[2] == ["Ring traffic", "360.0 Gb/s", "all Sparks"], got[2]  # away, and every way it sends was received
+
+
+SIGN = (  # the sign of the demo as both pages carry it in their head: hidden until a moment says it is the demo
+    '<span id="demo" hidden title="Demo mode: ringtop makes up the Sparks, numbers and load, and reads nothing from a'
+    ' Spark. To see a real cluster, start ringtop without --demo.">Demo: not a real cluster</span>'
+)
+
+
+def test_the_sign_of_the_demo_stands_in_the_head_of_both_pages_in_its_words():
+    """A user took the demo for his own cluster: its head said "Live", and "demo" stood only in the name of its
+    image, small. Both pages carry a sign of the demo in their head, once, hidden until a moment says it is the
+    demo, with what the demo is and how to see a real cluster in its tooltip."""
+    for page in (PAGE, WALL):
+        text = page.read_text()
+        assert text.count(SIGN) == 1 and text.index(SIGN) < text.index("</header>"), page.name
+
+
+@needs_node
+def test_the_page_shows_the_sign_of_the_demo_only_where_the_server_says_so():
+    """The sign stands where the moment names the demo in a field of its own, also looking back and with neutral
+    names; a moment without that field, as a real cluster sends it, shows none, whatever its image is called. The
+    button that leads from a moment of the past back to now does what it did, and the corner says "Live" again."""
+    sign = "document.querySelector('#demo').hidden"
+    real = "server.say({ ...LIVE, t: LIVE.t + 2, identity: (({ demo, ...rest }) => rest)(LIVE.identity) }); "
+    got = sheet(
+        [
+            sign,
+            real + f"[{sign}, LIVE.identity.image]",
+            "server.say({ ...LIVE, t: LIVE.t + 2, identity: { ...LIVE.identity, demo: true } }); " + sign,
+            "Time.toggle(true); Time.go(LIVE.t - 40); null",
+            f"[Time.isPast(), {sign}]",
+            "document.querySelector('#tm-live').fire('click', {}); null",
+            f"[Time.isPast(), document.querySelector('#link').lastElementChild.text, {sign}]",
+        ]
+    )
+    assert got[0] is False, got[0]  # the demo
+    assert got[1][0] is True and "demo" in got[1][1], got[1]  # no field: no sign, though its image says "demo"
+    assert got[2] is False, got[2]
+    assert got[4] == [True, False], got[4]  # looking back at the demo: still the demo
+    assert got[6] == [False, "Live", False], got[6]  # back to now, as before
+    assert sheet([f"[NEUTRAL, {sign}]"], search="?names=neutral") == [[True, False]]  # with neutral names too

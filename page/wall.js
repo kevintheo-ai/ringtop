@@ -70,6 +70,7 @@ function take(state) {  // Takes in a moment that arrived (it came through lense
   if (shownT == null) { clusterNames = cameAs; buildTiles(state.cluster); }
   shownT = state.t; gotAt = Date.now();
   S = state;  // the faces read the moment on the page
+  show($('#demo'), (state.identity || {}).demo === true);  // the sign of the demo, by the field the server sends
   showCore(state); showRun(state); showTiles(state); showFoot(state);
 }
 function watch() {  // Asked every second and with every word of the stream: says in the corner whether the page is live, marks a stale moment, and opens a stream anew that is stale or brings no first moment.
