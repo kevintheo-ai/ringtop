@@ -39,9 +39,12 @@ def demo_map(form: str = "ring4") -> dict:
 
 def round_of(form: str = "ring4") -> dict:
     """What the Sparks of a made-up cluster show beyond the ring of four, as the fields of its Round: the board each
-    one reads (empty: none is sent), and the program each runs as its part of the ring engine (empty: every one the
-    first part, as ever; find4 has its first part at FIRST_PART_AT and the others in turn after it)."""
+    one reads (empty: none is sent), and the program each runs as its part of the ring engine: one part on each
+    Spark, the first on the head, as a real engine over several Sparks runs; find4 has its first part at
+    FIRST_PART_AT and the others in turn after it. ring4 alone sends none (empty: every Spark the first part, as the
+    demo always played it; the digest of a demo round holds it)."""
     count, _, named, foreign = FORMS[form]
     boards = [] if foreign is None else [BOARD if i == foreign else None for i in range(count)]
-    parts = [] if named else [f"VLLM::Worker_TP{(i - FIRST_PART_AT) % count}" for i in range(count)]
+    first = 0 if named else FIRST_PART_AT
+    parts = [] if form == "ring4" else [f"VLLM::Worker_TP{(i - first) % count}" for i in range(count)]
     return {"boards": boards, "tp": parts}

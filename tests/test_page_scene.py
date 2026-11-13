@@ -301,17 +301,16 @@ def with_chord(states):
 def test_a_new_pair_on_a_cable_or_another_head_starts_the_page_anew_and_nothing_else_does():
     """The page draws the lanes once, from its first moment. A moment whose cables join a pair that has no lane
     (the cable across came later) starts the page anew, as another cluster does; so does a moment with another head,
-    so the sign "head" and every view follow a head that was found or moved. The same moment again does not, and a
-    page that drew the cable across from the start does not start anew for it."""
-    counts = scene(
-        [
-            "location.reload = () => { globalThis.reloads = (globalThis.reloads || 0) + 1; }; null",
-            f"{SAY}(m => null)",
-            f"{SAY}({CHORD})",
-            f"{SAY}(m => {{ m.cluster.nodes[0].head = false; m.cluster.nodes[1].head = true; }})",
-        ]
-    )
-    assert counts[1:] == [0, 1, 2], counts
+    so the sign "head" and every view follow a head that was found or moved. The same moment again does not, nor
+    one whose readings alone changed, and a page that drew the cable across from the start does not start anew for
+    it. Each of the two is checked on a page of its own: a reload is only counted here, so a page goes on with the
+    lanes it drew, and a later step would carry the cable across of the one before."""
+    counted = "location.reload = () => { globalThis.reloads = (globalThis.reloads || 0) + 1; }; null"
+    readings = "m => { m.edges[0].gbps = 9.5; m.edges[1].rx = 0.5; m.nodes[2].temp = 71; }"
+    counts = scene([counted, f"{SAY}(m => null)", f"{SAY}({readings})", f"{SAY}({CHORD})"])
+    assert counts[1:] == [0, 0, 1], counts
+    head = scene([counted, f"{SAY}(m => {{ m.cluster.nodes[0].head = false; m.cluster.nodes[1].head = true; }})"])
+    assert head[1:] == [1], head
     again = scene(["location.reload = () => { globalThis.reloads = 1; }; null", f"{SAY}({CHORD})"], change=with_chord)
     assert again[1:] == [0], again
 
@@ -333,6 +332,25 @@ def test_a_spark_of_another_maker_stands_as_a_plain_box_that_does_not_open():
         " { firmware: null }, {}, { firmware: { board: 7 } }].map(foreignBoard);"
     )
     assert rule == [False, True, False, False, False, False], rule
+    # and what is drawn: the program of the model (the one with its textures) draws every Spark where none read
+    # another board, and with one that did, all but that one, which another program draws as the box
+    steps = [f"server.place('#hole', {NARROW}); null", "setView('ring'); server.draw(60, 50); null", DRAWN]
+    box = scene(steps, change=lambda states: states.update(three))[2]
+    plain = scene(steps, change=without_boards(three))[2]
+    gone = sorted(set(plain["model"]) - set(box["model"]))
+    assert len(gone) == 1 and gone[0] in box["other"], (box, plain)
+
+
+# Notes, over a few frames, where every program of the scene sets a position (the first three floats it is given),
+# by x and z: those of the program of the model, the one that binds its four textures, and those of every other.
+DRAWN = """(() => { const gl = document.querySelector('canvas').getContext('webgl2'); let cur = null; const model = new Set(), at = [];
+  gl.useProgram = p => { cur = p; };
+  gl.uniform1i = (loc, unit) => { if (unit === 3) model.add(cur); };
+  gl.uniform3f = (loc, x, y, z) => { at.push([cur, x, z]); };
+  server.draw(4, 50);
+  const key = ([, x, z]) => [x, z].map(v => Math.round(v * 1000)).join(',');
+  return { model: [...new Set(at.filter(a => model.has(a[0])).map(key))], other: [...new Set(at.filter(a => !model.has(a[0])).map(key))] };
+})()"""
 
 
 RING_MOMENT = """
@@ -419,17 +437,44 @@ def test_every_cable_counts_against_the_line_rate_of_its_own_link_and_only_an_un
     """The share of the fuller direction in the deep view: one link that read another line rate took it away from
     every cable, as the rates no longer agreed. Each cable is counted against the rate its own link
     reads: in a ring of four every cable against 200 Gb/s, as before; with one link at 100 Gb/s
-    that one against 100 and the seven others as before; a link whose rate was not read has no share."""
+    that one against 100 and the seven others as before; a link whose rate was not read has no share, also where
+    the seven others read theirs."""
     got = page_rules(
         RING_MOMENT + " const slow = edges.map((e, k) => k === 3 ? { ...e, capacity: 100 } : e),"
         " cable = { gb_tx: 2.15, gb_rx: 2.1 }, shares = list => list.map(e => fullShare(cable, cableRate(list, e.from, e.group)));"
         " return [shares(edges), shares(slow), shares(edges.map(e => ({ ...e, capacity: null }))),"
-        " fullShare({ gb_tx: null, gb_rx: 2 }, 200), cableRate(edges, 7, 'f0')];"
+        " fullShare({ gb_tx: null, gb_rx: 2 }, 200), cableRate(edges, 7, 'f0'),"
+        " shares(edges.map((e, k) => k === 5 ? { ...e, capacity: null } : e))];"
     )
-    four, slow, unread, untold, nobody = got
+    four, slow, unread, untold, nobody, one = got
     share = max(2.15, 2.1) / 200 * 100
     assert four == [share] * 8 and slow == [share] * 3 + [2.15] + [share] * 4, (four, slow)
     assert unread == [None] * 8 and untold is None and nobody is None, (unread, untold, nobody)
+    assert one == [share] * 5 + [None] + [share] * 2, one  # one unread among seven read: that one alone has none
+
+
+@needs_node
+def test_the_column_full_of_the_deep_view_counts_every_cable_against_the_line_rate_of_its_own_link():
+    """The check above holds the rule of the share; this one the column "Full" of the Links tab that writes it. With
+    one link at 100 Gb/s its cable is twice as full as the seven others, and a cable whose link read no rate says
+    a dash."""
+    rates = (
+        "server.say({ ...LIVE, t: LIVE.t + 2, edges: LIVE.edges.map(e => e.from === 0 && e.group === 'f1'"
+        " ? { ...e, capacity: 100 } : e.from === 1 && e.group === 'f0' ? { ...e, capacity: null } : e) }); null"
+    )
+    full = "(all => all.flatMap((e, i) => e.text.includes('→') ? [[e.text, all[i + 3].text]] : []))(document.querySelector('#n-pane').under())"
+    got = sheet([rates, "Nerd.tab('links'); Nerd.toggle(true); null", full])[2]
+    share = "46.7 %"  # 93.43 Gb/s each way against 200
+    assert dict(got) == {
+        "dgx0 → dgx1": share,
+        "dgx0 → dgx3": "93.4 %",
+        "dgx1 → dgx2": "–",
+        "dgx1 → dgx0": share,
+        "dgx2 → dgx3": share,
+        "dgx2 → dgx1": share,
+        "dgx3 → dgx0": share,
+        "dgx3 → dgx2": share,
+    }, got
 
 
 def without_boards(three):

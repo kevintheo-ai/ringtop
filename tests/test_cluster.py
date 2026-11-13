@@ -212,7 +212,9 @@ def test_ring_ports_a_head_or_a_rank_ringtop_cannot_read_end_the_start_with_a_wo
     assert refused({"nodes": [{"name": "dgx0", "rank": 0, "head": "false"}]}) == "Head of 'dgx0' not usable: 'false'"
     assert refused({"nodes": [{"name": "dgx0", "rank": 1.5}]}) == "Rank of 'dgx0' not usable: 1.5"
     assert parse_cluster(ring_map(two_rails=True))["nodes"][0]["peers"] == {"f0": 1, "f1": 3}
-    assert parse_cluster({"nodes": [{"name": "a", "rank": 0, "head": 1}, {"name": "b", "rank": 1.0, "head": 0}]})
+    read = parse_cluster({"nodes": [{"name": "a", "rank": 0, "head": 1}, {"name": "b", "rank": 1.0, "head": 0}]})
+    # read as they mean, in the kinds ringtop counts with: rank 1.0 as the whole number 1, head 1 and 0 as yes and no
+    assert [repr((n["name"], n["rank"], n["head"])) for n in read["nodes"]] == ["('a', 0, True)", "('b', 1, False)"]
 
 
 def test_a_peer_that_reads_as_a_digit_but_is_no_number_ends_the_start_with_a_word():
@@ -220,3 +222,27 @@ def test_a_peer_that_reads_as_a_digit_but_is_no_number_ends_the_start_with_a_wor
     traceback. A peer is a whole number in decimal digits, so it ends the start with a sentence like any other."""
     node = {"name": "dgx1", "rank": 1, "roce_peer_hcas": {"²": ["rocep1s0f0"]}}
     assert refused({"nodes": [{"name": "dgx0", "rank": 0}, node]}).startswith("Ring ports of 'dgx1' not usable")
+
+
+def test_a_whole_number_of_thousands_of_digits_is_none_where_it_stands_and_the_run_passes():
+    """A number no float holds is None wherever it stands. One of more than 4300 digits was not read at all: Python
+    refuses to turn so many digits into a number, and the whole answer of the run source failed, even where the
+    number stood in a field that is dropped. It is None like any other, and the run passes; as the answer itself,
+    or as the name of a run, it is still no run."""
+    long = "1" * 5000
+    run = parse_runs('{"name":"job","done":' + long + ',"total":9,"extra":[' + long + "]}")
+    assert run == {"name": "job", "total": 9}, run
+    for odd in (long, '{"name":' + long + "}", "[" + long + "]"):
+        try:
+            parse_runs(odd)
+        except ValueError as problem:
+            assert str(problem) == "needs an object with a name", (odd[:12], problem)
+        else:
+            raise AssertionError(f"took {odd[:12]}")
+
+
+def test_a_rank_no_whole_number_can_hold_ends_the_start_with_a_word():
+    """A rank of 1e999 reads as infinite, and turning it into a whole number broke with an OverflowError, a
+    traceback. Like every rank that is no whole number, it ends the start with a sentence."""
+    for rank in (float("inf"), float("-inf"), float("nan")):
+        assert refused({"nodes": [{"name": "dgx0", "rank": rank}]}) == f"Rank of 'dgx0' not usable: {rank!r}", rank

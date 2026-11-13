@@ -54,6 +54,7 @@ SAMPLER = program(SAMPLER_PARTS)
 # Runs on the head node once, as `python3 - DAYS`: old engine logs hold the speed of every past run, one line per 10 s.
 BACKFILL = program(["backfill.py"])
 HEAD_LOOK = 15.0  # seconds between two looks for the head of a map that names none: the programs come every 15 s
+NODES_MOST = 65536  # bytes of a node map file that are read at most (--nodes): a map of sixteen Sparks holds a few KB
 
 
 class NodeStream(threading.Thread):
@@ -66,7 +67,8 @@ class NodeStream(threading.Thread):
         self.hub, self.node, self.commands, self.remake = hub, node, commands, remake
         self.process: subprocess.Popen | None = None
         self.turn = 0  # how often retarget gave the node new commands: a try begun in an older turn is over
-        self.turning = threading.Lock()  # retarget and the reordering of the commands, one at a time
+        self.began = 0  # the turn the try that runs began in: a sampler started for an older one is ended at once
+        self.turning = threading.Lock()  # retarget, the start of a sampler, the mark of a node: one at a time
 
     def retarget(self) -> None:
         """The node took another role (core/heads.py): its commands are made anew for it, and the sampler that runs
@@ -75,7 +77,7 @@ class NodeStream(threading.Thread):
             if self.remake:
                 self.commands[:] = self.remake(self.node)
             self.turn += 1
-        process = self.process
+            process = self.process
         if process and process.poll() is None:
             process.terminate()
 
@@ -93,7 +95,10 @@ class NodeStream(threading.Thread):
             )
         except OSError as problem:  # no ssh, no room for another process: tried again like any node that is away
             return False, str(problem)[:200]
-        self.process = process
+        with self.turning:  # a new role that came since the try took its commands: this sampler has the old one
+            self.process, stale = process, self.turn != self.began
+        if stale:
+            process.terminate()
         errors: collections.deque = collections.deque(maxlen=3)
         last_words = threading.Thread(target=lambda: errors.extend(process.stderr), daemon=True)
         last_words.start()
@@ -126,8 +131,10 @@ class NodeStream(threading.Thread):
         that retarget ended is started anew at once, without a mark."""
         delay = 1.0
         while True:
-            turn, reason = self.turn, "No way to reach this node"
-            for command in list(self.commands):
+            with self.turning:
+                turn, commands, self.began = self.turn, list(self.commands), self.turn
+            reason = "No way to reach this node"
+            for command in commands:
                 reached, reason = self.stream(command)
                 if self.turn != turn:
                     break
@@ -138,9 +145,12 @@ class NodeStream(threading.Thread):
                             self.commands.insert(0, command)
                     delay = 1.0
                     break
-            if self.turn != turn:  # retarget gave new commands: the next sampler starts now, with the new role
+            with self.turning:  # a Spark that only took a new role is not marked down
+                moved = self.turn != turn
+                if not moved:
+                    self.hub.node_down(self.node["name"], reason)
+            if moved:  # retarget gave new commands: the next sampler starts now, with the new role
                 continue
-            self.hub.node_down(self.node["name"], reason)
             time.sleep(delay)
             delay = min(30.0, delay * 2)
 
@@ -194,10 +204,18 @@ def discover(target: str | None, repo: str | None) -> dict:
 def read_nodes(path: str) -> dict:
     """The node map from a file on this machine (--nodes), in the form of config/nodes.json of spark-ds41f, as
     discover gives it: no checkout, and this machine's name for the sampler that may run right here. Ends ringtop
-    with a plain word when the file cannot be read or is no JSON."""
+    with a plain word when the file cannot be read, is no plain file (a device or a pipe has no end to read to), is
+    bigger than NODES_MOST, is nested deeper than json goes or is no JSON."""
+    file = Path(path).expanduser()
     try:
-        node_map = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
-    except (OSError, ValueError) as problem:  # a missing file, no permission, bytes that are no text, no JSON
+        if not file.is_file():
+            raise ValueError("no plain file")
+        with file.open("rb") as handle:
+            data = handle.read(NODES_MOST + 1)
+        if len(data) > NODES_MOST:
+            raise ValueError(f"more than {NODES_MOST} bytes")
+        node_map = json.loads(data.decode("utf-8"))
+    except (OSError, ValueError, RecursionError) as problem:  # missing, no permission, no text, no JSON, too deep
         raise SystemExit(f"Could not read the node map {path}: {problem}") from None
     return {"nodes": node_map, "repo": None, "hostname": socket.gethostname()}
 

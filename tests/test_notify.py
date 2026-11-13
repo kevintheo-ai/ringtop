@@ -217,8 +217,11 @@ def test_no_failure_says_the_topic_and_each_ends_within_its_limit():
         (answer(403, f"Forbidden {CANARY}"), "http 403", False),
         (answer(304, "Not Modified"), "http 304", False),
         # no final answer, from the server or a box in front of it: it may have the message
+        (answer(101, "Switching Protocols") + TAKEN, "http 101", True),
+        (answer(102, "Processing") + TAKEN, "http 102", True),
         (answer(103, "Early Hints") + TAKEN, "http 103", True),
         (answer(600, "Unknown"), "http 600", True),
+        (answer(999, "Unknown"), "http 999", True),
         (b"no HTTP at all " + CANARY.encode() + b"\r\n\r\n", "BadStatusLine", True),
         (b"", "RemoteDisconnected", True),
         (silent, "timeout", True),

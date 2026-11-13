@@ -49,12 +49,18 @@ def test_a_head_is_set_only_after_two_looks_in_a_row_and_kept_when_nothing_is_fo
     assert heads.look(RING_OF_FOUR, None, "dgx0") == ("dgx0", "dgx0", None)
     assert heads.look(RING_OF_FOUR, "dgx0", "dgx0") == ("dgx0", "dgx0", None)
     idle = [spark("dgx0"), spark("dgx1"), spark("dgx2"), spark("dgx3")]
-    assert heads.look(idle, None, "dgx0") == (None, None, none) and heads.look(idle, "dgx0", "dgx0")[:2] == (
+    # where a head was found it stays, and the engine says no word of none or several
+    assert heads.look(idle, None, "dgx0") == (None, None, none) and heads.look(idle, "dgx0", "dgx0") == (
         "dgx0",
+        None,
         None,
     )
     two = [spark("dgx0", worker(0)), spark("dgx1", worker(0)), spark("dgx2", worker(1))]
-    assert heads.look(two, None, None) == (None, None, several) and heads.look(two, "dgx2", None)[:2] == ("dgx2", None)
+    assert heads.look(two, None, None) == (None, None, several) and heads.look(two, "dgx2", None) == (
+        "dgx2",
+        None,
+        None,
+    )
     unread = [*RING_OF_FOUR[:3], spark("dgx3", None)]
     assert heads.look(unread, None, "dgx0") == (None, "dgx0", None) and heads.look(unread, "dgx1", "x") == (
         "dgx1",
@@ -172,7 +178,7 @@ def test_only_the_spark_taken_for_the_head_is_read_for_the_ring_engine():
             {},
             None,
         )
-        assert hub.nodes["dgx0"]["live"]  # the old head is read for everything else
+        assert hub.nodes["dgx0"]["live"] and hub.nodes["dgx0"]["cpu_pct"] == 12  # the old head is read for the rest
     hub.ingest("dgx1", late)
     with hub.lock:
         assert (len(hub.scrapes), hub.engine_error, hub.info, hub.connections) == (

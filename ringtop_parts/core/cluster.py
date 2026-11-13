@@ -28,7 +28,7 @@ def node_of(n: dict) -> dict:
         raise SystemExit(f"Node name not usable as an SSH host: {n.get('name')!r}")
     try:
         rank = int(n["rank"])
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, OverflowError):  # OverflowError: a rank of 1e999 reads as infinite
         rank = None
     if rank is None or (rank != n["rank"] and not isinstance(n["rank"], str)):  # 1.5 is no rank, "2" is one
         raise SystemExit(f"Rank of {n['name']!r} not usable: {n.get('rank')!r}")
@@ -87,17 +87,16 @@ def parse_runs(text: str) -> dict | None:
     stations (clean_steps, every one of them: the page counts them and finds the one that runs), its tracks and the
     answers it gives as tables; whatever else it prints stays here. A run whose name is no text that says something
     is refused with a ValueError. Whether it names a run at all is read from the text as it was printed: only null
-    or an empty list name none, a number no browser reads in their place is a source that failed."""
-    said = json.loads(text)
+    or an empty list name none, a number no browser reads in their place is a source that failed. A whole number is
+    read as a float there, which never fails (whole)."""
+    said = json.loads(text, parse_int=float)
     if isinstance(said, list):
         said = said[0] if said else None
     if said is None:
         return None
     if not isinstance(said, dict) or not isinstance(said.get("name"), str) or not said["name"]:
         raise ValueError("needs an object with a name")
-    value = json.loads(
-        text, parse_constant=lambda _: None, parse_float=lambda s: num(float(s)), parse_int=lambda s: num(int(s))
-    )
+    value = json.loads(text, parse_constant=lambda _: None, parse_float=lambda s: num(float(s)), parse_int=whole)
     value = value[0] if isinstance(value, list) else value
     run = {key: value[key] for key in RUN_TEXT if isinstance(value.get(key), str)}
     # the Hub counts with the start: a moment that is no number would end every view with an error; the pages count
@@ -111,6 +110,12 @@ def parse_runs(text: str) -> dict | None:
     if isinstance(value.get("replies"), list):
         run["replies"] = [reply for reply in value["replies"] if isinstance(reply, dict)]
     return run
+
+
+def whole(text: str):
+    """A whole number as JSON prints it, where a float holds it (num), else None. One of more than 309 digits fits
+    in no float and is not read at all: Python refuses to read one of more than 4300 digits."""
+    return None if len(text.lstrip("-")) > 309 else num(int(text))
 
 
 TRACK_TEXT, TRACK_NUMBERS = ("node", "model", "name"), ("done", "total", "started")

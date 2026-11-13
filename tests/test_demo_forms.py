@@ -67,3 +67,17 @@ def test_in_the_form_without_a_head_the_head_is_found_on_the_spark_with_the_firs
     assert all(flags == [False, False, True, False] for flags, _, _ in seen[found:]), seen
     assert seen[-1][1] > 0 and seen[-1][2] == "writing", seen[-1]
     assert [e["node"] for e in hub.events if e["kind"] == "head"] == ["spark-2"]
+
+
+def test_in_the_named_forms_the_ring_engine_runs_one_part_on_each_spark_and_the_first_on_the_head():
+    """A ring engine over several Sparks runs one part on each, the first (TP0) on the head. The named forms sent the
+    first part on every Spark. ring2, ring3, ring6 and switch4 now send TP0 on the head and the others in turn, and
+    one Spark runs the one part; ring4 sends TP0 on every Spark as the demo always played it, since the digest of a
+    demo round holds it; find4 runs its first part where ringtop has to find it."""
+    for form, (count, _, named, _) in FORMS.items():
+        if named and form != "ring4":
+            assert round_of(form)["tp"] == [f"VLLM::Worker_TP{k}" for k in range(count)], form
+    for form in ("ring2", "ring3", "ring6", "switch4"):
+        hub = demo_round(10, at=100.0, node_map=demo_map(form), form=form)
+        first = [name for name, node in hub.nodes.items() if any(app["name"].endswith("_TP0") for app in node["apps"])]
+        assert first == ["spark-0"], (form, first)

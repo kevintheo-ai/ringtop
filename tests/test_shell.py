@@ -3,11 +3,14 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import types
+from pathlib import Path
 from typing import ClassVar
 
 from ringtop_parts.connect import shell
@@ -184,6 +187,23 @@ def started_to(streams, count):
     assert len(Watched.started) == count, Watched.started
 
 
+def ended(hub, streams) -> bool:
+    """Ends the threads of node streams after a check: no commands, no sampler, and the next mark of a node ends the
+    thread (SystemExit ends a thread without a word). Gives whether every one of them has ended."""
+
+    def stop(name, reason):
+        raise SystemExit
+
+    hub.node_down = stop
+    for stream in streams:
+        stream.commands[:] = []
+        if stream.process:
+            stream.process.terminate()
+    for stream in streams:
+        stream.join(10)
+    return not any(stream.is_alive() for stream in streams)
+
+
 def first_part_on(hub, first):
     """Every Spark live with one part of an engine over all four on its GPU, the first part on Spark `first`."""
     with hub.lock:
@@ -213,11 +233,9 @@ def test_a_spark_taken_for_the_head_gets_its_sampler_anew_with_the_role_of_head(
             started_to(streams, count)
         marked = list(downs)  # before the end of the check: ending the samplers below marks them down, as it should
     finally:
-        for stream in streams:
-            stream.commands[:] = []
-            if stream.process:
-                stream.process.terminate()
+        over = ended(hub, streams)
     seen = Watched.started
+    assert over, [stream.is_alive() for stream in streams]  # no thread of this check runs on into the next
     assert sorted(seen[:4]) == [(f"dgx{i}", "worker") for i in range(4)], seen
     assert seen[4] == ("dgx0", "head") and set(seen[5:]) == {("dgx0", "worker"), ("dgx2", "head")}, seen
     assert marked == [] and not [e for e in hub.events if e["text"].startswith("Unreachable")], (marked, hub.events)
@@ -228,8 +246,8 @@ def test_a_new_role_that_lands_as_its_sampler_ends_does_not_end_the_stream_of_th
     last words of the command). The try then put a command first that was no longer in the list: a ValueError ended
     the thread, and that Spark was never reached again. A try of an older turn is now over without a mark: the stream
     starts anew with the commands of the new role, and nothing ends its thread."""
-    hub, tries, died, hold = hub_for(), [], [], threading.Event()
-    hub.node_down = lambda name, reason: None
+    hub, tries, died, hold, downs = hub_for(), [], [], threading.Event(), []
+    hub.node_down = lambda name, reason: downs.append(reason)
 
     class Late(NodeStream):
         def stream(self, command):
@@ -247,9 +265,76 @@ def test_a_new_role_that_lands_as_its_sampler_ends_does_not_end_the_stream_of_th
         deadline = time.time() + 5
         while len(tries) < 2 and stream.is_alive() and time.time() < deadline:
             time.sleep(0.02)
-        alive = stream.is_alive()
+        alive, marked = stream.is_alive(), list(downs)
     finally:
-        stream.commands[:] = []
+        threading.excepthook = before  # first: the end of the thread below is no death of it
         hold.set()
-        threading.excepthook = before
+        over = ended(hub, [stream])
     assert tries[:2] == ["old", "new"] and died == [] and alive, (tries, died, alive)
+    assert marked == [], marked  # the old turn is over without a mark: the Spark only took a new role
+    assert over, "the thread of the check runs on"
+
+
+def test_a_new_role_that_lands_before_its_sampler_starts_ends_that_sampler_at_once():
+    """A retarget can land after a try took the commands of the old role and before its sampler started: it ended
+    the sampler that ran before, long over, and the new one ran with the old role until its connection ended, at a
+    Spark that answers for good. A sampler that starts for an older turn is now ended at once, and the next one
+    starts with the new role."""
+    hub, Watched.started, landed = hub_for(), [], []
+    hub.node_down = lambda name, reason: None
+    hub.ingest = lambda name, sample: None
+    node = hub.cluster["nodes"][1]
+    stream = Watched(hub, node, as_sampler(node), lambda n: as_sampler({**n, "head": True}))
+    real = shell.subprocess
+
+    def popen(command, **kwargs):
+        if not landed:  # the try has taken the commands of the old role; its sampler is not started yet
+            landed.append(True)
+            stream.retarget()
+        return real.Popen(command, **kwargs)
+
+    shell.subprocess = types.SimpleNamespace(Popen=popen, PIPE=subprocess.PIPE)
+    try:
+        stream.start()
+        deadline = time.time() + 10
+        while len(Watched.started) < 2 and time.time() < deadline:
+            time.sleep(0.05)
+        seen = list(Watched.started)
+    finally:
+        shell.subprocess = real
+        over = ended(hub, [stream])
+    assert seen[:2] == [("dgx1", "worker"), ("dgx1", "head")], seen  # was the old role alone, for 60 s
+    assert over, "the thread of the check runs on"
+
+
+def refused_nodes(path: str):
+    """The word a node map file ends the start with (read_nodes), or None where it was read."""
+    try:
+        shell.read_nodes(path)
+    except SystemExit as stop:
+        return str(stop.code)
+    return None
+
+
+def test_a_node_map_file_is_read_only_as_far_as_a_map_goes_and_else_ends_the_start_with_a_word():
+    """--nodes reads a file on this machine. /dev/zero filled the memory, a named pipe without a writer held the
+    start as it was opened, JSON nested deeper than json goes ended it with a RecursionError, a traceback, and a file
+    of any size was read whole. Only a plain file is read, and no more of it than NODES_MOST bytes, far more than a
+    map of sixteen Sparks; whatever else stands there ends the start with a sentence. A map reads as before."""
+    with tempfile.TemporaryDirectory() as folder:
+        deep, big, pipe, good = (Path(folder) / name for name in ("deep.json", "big.json", "pipe", "nodes.json"))
+        deep.write_text("[" * 100000 + "]" * 100000)
+        big.write_text(json.dumps({**ring_map(), "pad": "x" * shell.NODES_MOST}))
+        good.write_text(json.dumps(ring_map()))
+        os.mkfifo(pipe)
+        for bad in (str(deep), str(big), str(pipe), folder, "/dev/zero"):
+            word = []
+            reader = threading.Thread(target=lambda bad=bad, word=word: word.append(refused_nodes(bad)), daemon=True)
+            reader.start()
+            reader.join(5)
+            hung = reader.is_alive()
+            if hung:
+                with open(pipe, "w"):  # lets the reader go, so that no thread is left behind
+                    pass
+            assert not hung and word and str(word[0]).startswith(f"Could not read the node map {bad}: "), (bad, word)
+        assert shell.read_nodes(str(good))["nodes"] == ring_map()

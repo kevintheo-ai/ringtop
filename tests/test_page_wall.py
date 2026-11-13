@@ -187,11 +187,14 @@ def test_the_calm_page_sizes_a_tile_in_container_units_only_where_the_browser_kn
     of the page, not the first one. So the sheet asks (@supports): the size in container units stands in a block
     only a browser that knows them reads, the size for every other browser before it, and no container unit
     stands where every browser reads it. The size for every other browser stands in the same block as the question
-    (one moved into @media print reaches no screen)."""
+    (one moved into @media print reaches no screen), and no rule after the question sizes a tile anew (a later
+    size in window units, in a block of its own, would win over the one in container units)."""
     sheet = re.sub(r"/\*.*?\*/", "", (WALL.parent / "wall.css").read_text(), flags=re.S)
     tile_sizes_hold(sheet)
     fallback = re.findall(r"\.tile\{[^{}]*font-size:[^{};]*\}(?=\s*@supports)", sheet)[0]
     assert red(tile_sizes_hold, sheet.replace(fallback, "@media print{" + fallback + "}", 1))
+    for later in ("@media (min-width:1px){.tile{font-size:2vw}}", "#tiles .tile{ font: 600 2vw/1 sans-serif}"):
+        assert red(tile_sizes_hold, sheet + later), later
 
 
 def tile_sizes_hold(sheet: str) -> None:
@@ -207,6 +210,9 @@ def tile_sizes_hold(sheet: str) -> None:
     first = list(re.finditer(r"\.tile\{[^{}]*font-size:([^{};]*)\}", before))
     assert first and "vw" in first[-1][1] and "vh" in first[-1][1], first  # the size for every other browser
     assert around(sheet, first[-1].start()) == around(sheet, len(before)), "the size for every other browser elsewhere"
+    for selectors, said in re.findall(r"([^{}]+)\{([^{}]*)\}", after):
+        tile = any(re.search(r"(?<![\w-])\.tile(?![\w-])", last) for last in last_parts(selectors))
+        assert not (tile and re.search(r"(?:^|;)\s*font(?:-size)?\s*:", said, re.I)), (selectors, said)
 
 
 def around(sheet: str, at: int) -> list:
@@ -259,6 +265,7 @@ def test_no_later_rule_of_the_calm_page_takes_the_digits_of_one_width_from_a_fig
     for later in (
         ".num{ font:600 1em var(--num)}",
         ".num[class]{font:600 1em var(--num)}",
+        ".num.num{font:600 1em var(--num)}",
         ".t-stats :is(strong){font:600 1em var(--num)}",
         ".t-stats strong{font-variant-numeric:normal}",
     ):
